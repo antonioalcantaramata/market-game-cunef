@@ -1,4 +1,4 @@
-// Tests for supabase/schema.sql, run on PGlite: node --test scripts/
+// Tests for supabase/schema.sql, run on PGlite: npm test
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { clearMarket } from "../lib/game.ts";

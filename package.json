@@ -6,7 +6,7 @@
     "dev": "node scripts/copy-pdf-worker.mjs && node scripts/dev.mjs",
     "build": "node scripts/copy-pdf-worker.mjs && next build",
     "lint": "eslint",
-    "test": "node --test scripts/",
+    "test": "node --test scripts/*.test.ts scripts/*.test.mjs",
     "dev:api": "node scripts/dev-api.mjs"
   },
   "dependencies": {

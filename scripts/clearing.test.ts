@@ -1,4 +1,4 @@
-// Run with: node --test scripts/
+// Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clearMarket } from "../lib/game.ts";
