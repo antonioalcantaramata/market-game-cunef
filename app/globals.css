@@ -1,26 +1,110 @@
 @import "tailwindcss";
 
+/* CUNEF Universidad palette (official manual). Light theme only: the app is
+   used on phones in a lit room and on a projector, where dark themes wash out. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --navy: #1a1f6c;
+  --orange: #ff5700;
+  --sand: #d6d1c4;
+  --sand-light: #f0ece8;
+  --sky: #d2e0f3;
+  --teal: #0796a3;
+  --maroon: #ae3c7c;
+  --ink: #14162e;
+  --ink-2: #4b4d63;
+  --ink-3: #7c7d8c;
+  --line: #e2ddd5;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-navy: var(--navy);
+  --color-orange: var(--orange);
+  --color-sand: var(--sand);
+  --color-sand-light: var(--sand-light);
+  --color-sky: var(--sky);
+  --color-teal: var(--teal);
+  --color-maroon: var(--maroon);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --font-sans: Aeonik, Arial, Helvetica, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--sand-light);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border-radius: 10px;
+    padding: 0.5rem 0.9rem;
+    font-weight: 600;
+    transition: background-color 120ms, opacity 120ms;
+    cursor: pointer;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--navy);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #262c8a;
+  }
+  .btn-accent {
+    background: var(--orange);
+    color: #fff;
+  }
+  .btn-accent:hover:not(:disabled) {
+    background: #e84f00;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--navy);
+    border: 1px solid var(--sand);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--sand-light);
+  }
+
+  .input {
+    border: 1px solid var(--sand);
+    border-radius: 10px;
+    padding: 0.5rem 0.7rem;
+    background: #fff;
+    width: 100%;
+  }
+  .input:focus {
+    outline: 2px solid var(--navy);
+    outline-offset: 1px;
+  }
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+  .no-print {
+    display: none !important;
+  }
 }
