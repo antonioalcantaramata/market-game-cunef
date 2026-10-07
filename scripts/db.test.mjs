@@ -458,3 +458,30 @@ test("the join QR creates one team per group; the same phone keeps its team", as
   assert.ok(c.new && c.code !== other.groups[0].code);
   await assert.rejects(rpc("join_session", { p_session: "nope" }), /Session not found/);
 });
+
+test("deleting a session removes all its data and nothing else; log out ends the login", async () => {
+  const keep = await newSession(2);
+  const gone = await newSession(3);
+  const round = gone.rounds[0].id;
+  await act(gone.id, { action: "openRound", roundId: round });
+  await rpc("group_bid", { p_code: gone.groups[0].code, p_round: round, p_price: 50 });
+  await act(gone.id, { action: "closeRound", roundId: round });
+
+  await assert.rejects(rpc("admin_delete_session", { p_token: "made-up", p_session: gone.id }), /Instructor login required/);
+  await admin("admin_delete_session", { p_session: gone.id });
+  await assert.rejects(admin("admin_session", { p_session: gone.id }), /Session not found/);
+  await assert.rejects(rpc("group_state", { p_code: gone.groups[0].code }));
+  for (const t of ["groups", "rounds", "bid_log"]) {
+    const { rows } = await db.query(`select count(*)::int as n from ${t} where session_id = $1`, [gone.id]);
+    assert.equal(rows[0].n, 0, t);
+  }
+  const { rows } = await db.query("select count(*)::int as n from bids where round_id = $1", [round]);
+  assert.equal(rows[0].n, 0);
+  assert.equal((await admin("admin_session", { p_session: keep.id })).groups.length, 2);
+  await assert.rejects(admin("admin_delete_session", { p_session: gone.id }), /Session not found/);
+
+  const { token: other } = await rpc("admin_login", { p_password: "secret-pw" });
+  await rpc("admin_logout", { p_token: other });
+  await assert.rejects(rpc("admin_sessions", { p_token: other }), /Instructor login required/);
+  await admin("admin_sessions"); // the other login still works
+});

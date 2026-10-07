@@ -435,6 +435,12 @@ begin
   return jsonb_build_object('token', v_token);
 end $$;
 
+create or replace function admin_logout(p_token text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  delete from admin_tokens where token = p_token;
+end $$;
+
 create or replace function admin_sessions(p_token text) returns jsonb
 language plpgsql security definer set search_path = public as $$
 begin
@@ -446,6 +452,16 @@ begin
       'closedRounds', (select count(*) from rounds r where r.session_id = s.id and r.status = 'closed'))
       order by s.created_at desc)
     from sessions s), '[]');
+end $$;
+
+-- Deletes a session and everything in it: teams, rounds, offers and the offer log.
+create or replace function admin_delete_session(p_token text, p_session text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _check_admin(p_token);
+  delete from bid_log where session_id = p_session;
+  delete from sessions where id = p_session; -- groups, rounds and bids go with it (on delete cascade)
+  if not found then perform _fail('Session not found', 'not_found'); end if;
 end $$;
 
 drop function if exists admin_create_session(text, text, integer, double precision, integer, text);
@@ -835,7 +851,9 @@ end $$;
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function
   admin_login(text),
+  admin_logout(text),
   admin_sessions(text),
+  admin_delete_session(text, text),
   admin_create_session(text, text, integer, double precision, integer),
   admin_session(text, text),
   admin_action(text, text, jsonb),

@@ -89,7 +89,14 @@ export const api = {
     } catch {}
   },
 
+  async logout() {
+    await rpc<null>("admin_logout", { p_token: getToken() }).catch(() => {});
+    clearToken();
+  },
+
   sessions: () => rpc<SessionSummary[]>("admin_sessions", { p_token: getToken() }),
+
+  deleteSession: (id: string) => rpc<null>("admin_delete_session", { p_token: getToken(), p_session: id }),
 
   createSession: (f: { name: string; priceCap: number; roundSeconds: number }) =>
     rpc<{ id: string }>("admin_create_session", {

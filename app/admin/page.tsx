@@ -16,7 +16,14 @@ export default function AdminHome() {
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-8">
       <header className="flex items-center justify-between">
         <Logo height={44} />
-        <span className="font-semibold text-navy">Instructor panel</span>
+        <div className="flex items-center gap-3">
+          <span className="font-semibold text-navy">Instructor panel</span>
+          {!needsLogin && (
+            <button className="btn btn-ghost" onClick={async () => { await api.logout(); mutate(); }}>
+              Log out
+            </button>
+          )}
+        </div>
       </header>
       {needsLogin ? <Login onDone={() => mutate()} /> : (
         <>
@@ -36,7 +43,10 @@ export default function AdminHome() {
                       {s.groupCount} teams · {s.closedRounds} rounds played
                     </div>
                   </div>
-                  <Link href={`/admin/session?id=${s.id}`} className="btn btn-ghost">Open</Link>
+                  <div className="flex shrink-0 gap-2">
+                    <Link href={`/admin/session?id=${s.id}`} className="btn btn-ghost">Open</Link>
+                    <DeleteSession session={s} onDone={() => mutate()} />
+                  </div>
                 </li>
               ))}
             </ul>
@@ -44,6 +54,33 @@ export default function AdminHome() {
         </>
       )}
     </main>
+  );
+}
+
+function DeleteSession({ session: s, onDone }: { session: SessionSummary; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className="btn btn-ghost text-maroon"
+      disabled={busy}
+      onClick={async () => {
+        const ok = window.confirm(
+          `Delete «${s.name}»?\n\nIts ${s.groupCount} teams, ${s.closedRounds} rounds played and every offer will be ` +
+            "deleted for good. Download its data first if you need it.",
+        );
+        if (!ok) return;
+        setBusy(true);
+        try {
+          await api.deleteSession(s.id);
+        } catch (e) {
+          window.alert(e instanceof Error ? e.message : "Could not delete the session");
+        }
+        setBusy(false);
+        onDone();
+      }}
+    >
+      Delete
+    </button>
   );
 }
 
