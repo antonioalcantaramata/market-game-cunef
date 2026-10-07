@@ -52,6 +52,8 @@ function partStats(session: SessionView, phase: Phase): PartStats {
 
 const pct = (a: number, b: number) => (a > 0 ? Math.round(((b - a) / a) * 100) : 0);
 const hourName = (label: string) => label.split("·").pop()!.trim();
+// "07:00 · Early morning" → "07:00", for narrow columns.
+const clock = (label: string) => (label.includes("·") ? label.split("·")[0].trim() : label);
 
 // ---------------------------------------------------------------- pieces
 
@@ -217,7 +219,7 @@ function HourComparison({ session, p1, p2, height }: { session: SessionView; p1:
                   {bar(cx - bw - 2, h.a?.clearingPrice, PHASE_COLOR.competition)}
                   {bar(cx + 2, h.b?.clearingPrice, PHASE_COLOR.collusion)}
                   <text x={cx} y={m.top + ih + 20} textAnchor="middle" fontSize={14} fill={C.text}>
-                    {hourName(h.label)}
+                    {step >= 100 ? hourName(h.label) : clock(h.label)}
                   </text>
                 </g>
               );

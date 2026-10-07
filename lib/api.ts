@@ -1,5 +1,6 @@
 // Browser → Supabase. Every call is a Postgres function exposed by PostgREST
 // (see supabase/schema.sql); there is no server of our own.
+import type { PanelInput } from "./analysis.ts";
 import type { GroupState, ScreenSession, SessionSummary, SessionView } from "./types";
 import { groupState, sessionView, type Bundle, type GroupBundle, type Row } from "./views";
 
@@ -76,6 +77,10 @@ export const api = {
   screen: (id: string) => rpc<Bundle>("screen_state", { p_session: id }).then((b) => sessionView(b, false)),
 
   screenSessions: () => rpc<ScreenSession[]>("screen_sessions", {}),
+
+  /** Panel for Part 3; available once a Part 2 round has been played. */
+  analysis: (id: string) =>
+    rpc<{ available: boolean } & Partial<PanelInput>>("analysis_state", { p_session: id }),
 
   async login(password: string) {
     const { token } = await rpc<{ token: string }>("admin_login", { p_password: password });

@@ -104,10 +104,10 @@ test("pay-as-bid: identical plants, own price paid, cartel undercut", async () =
   assert.ok(s.groups.every((g) => !("marginal_cost" in g)));
   const { session } = await admin("admin_session", { p_session: s.id });
   assert.ok(!("mode" in session) && !("reveal_costs" in session));
-  assert.equal(s.rounds.length, 9);
+  assert.equal(s.rounds.length, 15);
   assert.deepEqual(
     s.rounds.map((r) => r.phase),
-    ["practice", ...Array(4).fill("competition"), ...Array(4).fill("collusion")],
+    ["practice", ...Array(7).fill("competition"), ...Array(7).fill("collusion")],
   );
 
   // 85% of 400 MW = 340, capped at 300 MW so one plant is always left over.
@@ -171,7 +171,7 @@ test("instructor actions and validation", async () => {
   assert.deepEqual([st.rounds[1].label, st.rounds[1].phase, st.rounds[1].demand_share], ["Late night", "collusion", 0.3]);
   await assert.rejects(act(s.id, { action: "updateRound", roundId: r2.id, demandShare: 3 }), /Demand must be/);
   st = await act(s.id, { action: "addRound", label: "18:00", phase: "competition", demandShare: 0.5 });
-  assert.equal(st.rounds.at(-1).number, 10);
+  assert.equal(st.rounds.at(-1).number, 16);
   st = await act(s.id, { action: "renameGroup", groupId: s.groups[0].id, name: "  Los   Atómicos  " });
   assert.equal(st.groups[0].name, "Los Atómicos");
   const renamed = await rpc("group_rename", { p_code: s.groups[1].code, p_name: "Team Sol" });
@@ -247,7 +247,7 @@ test("demand follows the teams that show up; paused teams drop out", async () =>
 // ---------------------------------------------------------------- demand uncertainty
 
 test("uncertain demand: teams see a forecast range, the real value is drawn and revealed at close", async () => {
-  const s = await newSession(10); // 1000 MW; round 3 is 70% → base 700 MW
+  const s = await newSession(10); // 1000 MW; round 3 is 60% → base 600 MW
   const [a, b] = s.groups;
   const r3 = s.rounds.find((r) => r.number === 3);
   await assert.rejects(act(s.id, { action: "updateRound", roundId: r3.id, demandSpread: 0.8 }), /Uncertainty/);
@@ -256,14 +256,14 @@ test("uncertain demand: teams see a forecast range, the real value is drawn and 
 
   st = await act(s.id, { action: "openRound", roundId: r3.id });
   const opened = st.rounds.find((r) => r.id === r3.id);
-  assert.deepEqual([opened.demand_low, opened.demand_high], [665, 735]);
-  assert.ok(opened.demand_mw >= 665 && opened.demand_mw <= 735 && Number.isInteger(opened.demand_mw));
+  assert.deepEqual([opened.demand_low, opened.demand_high], [570, 630]);
+  assert.ok(opened.demand_mw >= 570 && opened.demand_mw <= 630 && Number.isInteger(opened.demand_mw));
 
   // While open, teams and the projector only get the range.
   const team = await rpc("group_state", { p_code: a.code });
   const seen = team.rounds.find((r) => r.id === r3.id);
   assert.equal(seen.demand_mw, undefined);
-  assert.deepEqual([seen.demand_low, seen.demand_high], [665, 735]);
+  assert.deepEqual([seen.demand_low, seen.demand_high], [570, 630]);
   const screen = await rpc("screen_state", { p_session: s.id });
   assert.equal(screen.rounds.find((r) => r.id === r3.id).demand_mw, undefined);
 
@@ -285,8 +285,8 @@ test("uncertain demand: teams see a forecast range, the real value is drawn and 
   const r4 = s.rounds.find((r) => r.number === 4);
   st = await act(s.id, { action: "openRound", roundId: r4.id });
   const exact = st.rounds.find((r) => r.id === r4.id);
-  assert.deepEqual([exact.demand_low, exact.demand_mw, exact.demand_high], [550, 550, 550]);
-  assert.equal((await rpc("screen_state", { p_session: s.id })).rounds.find((r) => r.id === r4.id).demand_mw, 550);
+  assert.deepEqual([exact.demand_low, exact.demand_mw, exact.demand_high], [700, 700, 700]); // round 4: 70%, exact
+  assert.equal((await rpc("screen_state", { p_session: s.id })).rounds.find((r) => r.id === r4.id).demand_mw, 700);
   await act(s.id, { action: "closeRound", roundId: r4.id });
 
   st = await act(s.id, { action: "setSpreadAll", demandSpread: 0.1 });
@@ -315,7 +315,7 @@ test("before Part 2 starts, phones and projector receive nothing about agreement
     assert.ok(!JSON.stringify(payload).includes("collusion"));
   }
   const plan = await admin("admin_session", { p_session: s.id });
-  assert.equal(plan.rounds.length, 9); // the instructor still sees the whole plan
+  assert.equal(plan.rounds.length, 15); // the instructor still sees the whole plan
 });
 
 // ---------------------------------------------------------------- demand cap
@@ -409,4 +409,27 @@ test("Part 1 offers are anonymous (reshuffled letters); Part 2 shows names", asy
   for (const b of full.bids) if (full.rounds.find((r) => r.id === b.round_id).phase !== "practice") expected[b.group_id] += b.profit;
   for (const t of screen.totals) assert.ok(Math.abs(t.profit - expected[t.group_id]) < 0.01);
   assert.equal(screen.totals.length, 10);
+});
+
+// ---------------------------------------------------------------- Part 3 data
+
+test("Part 3 data opens only after a Part 2 round, with every offer and no names", async () => {
+  const s = await newSession(4);
+  for (const g of s.groups) await rpc("group_state", { p_code: g.code });
+  const play = async (round, priceOf) => {
+    await act(s.id, { action: "openRound", roundId: round.id });
+    for (const [i, g] of s.groups.entries()) await rpc("group_bid", { p_code: g.code, p_round: round.id, p_price: priceOf(i) });
+    await act(s.id, { action: "closeRound", roundId: round.id });
+  };
+  await play(s.rounds[0], () => 50); // practice
+  await play(s.rounds[1], (i) => 40 + i);
+  assert.deepEqual(await rpc("analysis_state", { p_session: s.id }), { available: false });
+
+  await play(s.rounds.find((r) => r.phase === "collusion"), () => 200);
+  const data = await rpc("analysis_state", { p_session: s.id });
+  assert.equal(data.available, true);
+  assert.deepEqual(data.rounds.map((r) => r.phase), ["competition", "collusion"]); // practice left out
+  assert.equal(data.offers.length, 8);
+  assert.deepEqual(Object.keys(data.offers[0]).sort(), ["price", "profit", "round", "slot"]);
+  await assert.rejects(rpc("analysis_state", { p_session: "nope" }), /Session not found/);
 });

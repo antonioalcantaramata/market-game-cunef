@@ -23,7 +23,7 @@ create table if not exists sessions (
   id            text primary key,
   name          text not null,
   price_cap     double precision not null default 200,
-  round_seconds integer not null default 180,
+  round_seconds integer not null default 45,
   created_at    timestamptz not null default now()
 );
 
@@ -466,17 +466,20 @@ begin
   end loop;
   insert into sessions (id, name, price_cap, round_seconds)
   values (v_id, coalesce(nullif(trim(p_name), ''), 'Open Day'),
-          coalesce(nullif(p_price_cap, 0), 200), coalesce(p_round_seconds, 180));
+          coalesce(nullif(p_price_cap, 0), 200), coalesce(p_round_seconds, 45));
   for i in 1..v_groups loop
     perform _insert_group(v_id, i);
   end loop;
 
-  -- Default plan: one practice round, then the same four hours with and
-  -- without agreements so both parts can be compared.
+  -- Default plan: one practice round, then the same seven hours of a day
+  -- without and with agreements, so both parts can be compared hour by hour.
+  -- Demand moves up and down so some hours are tight and others are not.
   insert into rounds (session_id, number, label, phase, demand_share) values (v_id, v_number, 'Practice', 'practice', 0.6);
   foreach v_phase in array array['competition', 'collusion'] loop
-    for h in select * from (values (1, '03:00 · Night', 0.45), (2, '09:00 · Morning', 0.7),
-                                   (3, '14:00 · Afternoon', 0.55), (4, '20:00 · Evening peak', 0.85)) as t(o, label, share)
+    for h in select * from (values (1, '02:00 · Night', 0.45), (2, '07:00 · Early morning', 0.6),
+                                   (3, '09:00 · Morning', 0.7), (4, '12:00 · Midday', 0.55),
+                                   (5, '15:00 · Afternoon', 0.5), (6, '18:00 · Evening', 0.75),
+                                   (7, '20:00 · Evening peak', 0.85)) as t(o, label, share)
              order by o loop
       v_number := v_number + 1;
       insert into rounds (session_id, number, label, phase, demand_share) values (v_id, v_number, h.label, v_phase, h.share);
@@ -682,6 +685,31 @@ begin
     from sessions s where s.created_at > now() - interval '14 days'), '[]');
 end $$;
 
+-- Data for Part 3 (Elena's change-point analysis): every offer of every
+-- played round with a stable team number, the same panel as results.csv.
+-- Part 1 offers are anonymous during the game, and following a team across
+-- rounds would undo that, so this only opens once a Part 2 round is over.
+create or replace function analysis_state(p_session text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from sessions where id = p_session) then
+    perform _fail('Session not found', 'not_found');
+  end if;
+  if not exists (select 1 from rounds where session_id = p_session and phase = 'collusion' and status = 'closed') then
+    return jsonb_build_object('available', false);
+  end if;
+  return jsonb_build_object(
+    'available', true,
+    'rounds', coalesce((
+      select jsonb_agg(jsonb_build_object('number', r.number, 'label', r.label, 'phase', r.phase) order by r.number)
+      from rounds r where r.session_id = p_session and r.status = 'closed' and r.phase <> 'practice'), '[]'),
+    'offers', coalesce((
+      select jsonb_agg(jsonb_build_object('round', r.number, 'slot', g.slot, 'price', b.price,
+                                          'profit', coalesce(b.profit, 0)) order by r.number, g.slot)
+      from bids b join rounds r on r.id = b.round_id join groups g on g.id = b.group_id
+      where r.session_id = p_session and r.status = 'closed' and r.phase <> 'practice'), '[]'));
+end $$;
+
 -- ------------------------------------------------------------------ teams
 
 create or replace function group_state(p_code text) returns jsonb
@@ -778,6 +806,7 @@ grant execute on function
   admin_export(text, text, text),
   screen_state(text),
   screen_sessions(),
+  analysis_state(text),
   group_state(text),
   group_rename(text, text),
   group_bid(text, integer, double precision)

@@ -308,9 +308,12 @@ export function PriceHistoryChart({
             {bands.map((b) => (
               <g key={b.from}>
                 <rect x={m.left + step * b.from} y={m.top} width={step * (b.to - b.from + 1)} height={ih} fill={bandFill[b.phase]} />
-                <text x={m.left + step * b.from + 4} y={m.top - 8} fontSize={fs - 1} fontWeight={600} fill={C.text}>
-                  {PHASE_LABEL[b.phase]}
-                </text>
+                {/* Narrow bands (e.g. the single practice round) skip their label rather than overlap. */}
+                {step * (b.to - b.from + 1) >= PHASE_LABEL[b.phase].length * (fs - 1) * 0.6 && (
+                  <text x={m.left + step * b.from + 4} y={m.top - 8} fontSize={fs - 1} fontWeight={600} fill={C.text}>
+                    {PHASE_LABEL[b.phase]}
+                  </text>
+                )}
               </g>
             ))}
             {ticks(priceCap, 4).map((t) => (

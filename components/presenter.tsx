@@ -1,14 +1,15 @@
 "use client";
 
 // Projector presenter: switches between the live game, the summary of the
-// parts played so far and a PDF deck on the same full screen. The game stays mounted (hidden) while slides are shown,
+// parts played so far, the statistical analysis (collusion detection) and a PDF deck on the
+// same full screen. The game stays mounted (hidden) while slides are shown,
 // so it keeps updating and comes back exactly where it is. The view, the deck
 // and the slide of each deck are remembered in this browser.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { SlideCanvas, useDecks, usePdf } from "./slides";
 
-type View = "game" | "summary" | "slides";
+type View = "game" | "summary" | "analysis" | "slides";
 
 const KEY = "market-game:projector:";
 
@@ -33,8 +34,17 @@ const NEXT = new Set(["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"]);
 const PREV = new Set(["ArrowLeft", "ArrowUp", "PageUp", "Backspace"]);
 const SWITCH = new Set(["g", "G", "b", "B", "."]);
 const SUMMARY = new Set(["s", "S"]);
+const ANALYSIS = new Set(["a", "A"]); // statistical analysis; its own steps use the clicker (see components/part3.tsx)
 
-export function Presenter({ children, summary }: { children: ReactNode; summary?: ReactNode }) {
+export function Presenter({
+  children,
+  summary,
+  analysis,
+}: {
+  children: ReactNode;
+  summary?: ReactNode;
+  analysis?: ReactNode;
+}) {
   const { decks, ready, add, remove } = useDecks();
   const [view, setView] = useState<View>(() => load<View>("view", "game"));
   const [deckName, setDeckName] = useState<string | null>(() => load<string | null>("deck", null));
@@ -81,6 +91,9 @@ export function Presenter({ children, summary }: { children: ReactNode; summary?
       } else if (summary && SUMMARY.has(e.key)) {
         e.preventDefault();
         switchTo(view === "summary" ? "game" : "summary");
+      } else if (analysis && ANALYSIS.has(e.key)) {
+        e.preventDefault();
+        switchTo(view === "analysis" ? "game" : "analysis");
       } else if (view === "slides" && NEXT.has(e.key)) {
         e.preventDefault();
         goTo(page + 1);
@@ -129,11 +142,20 @@ export function Presenter({ children, summary }: { children: ReactNode; summary?
   });
 
   const showControls = active || (view === "slides" && !doc);
+  // The view is remembered in this browser; render only once on the client so
+  // the first paint does not disagree with the server-rendered HTML.
+  const hydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+  if (!hydrated) return null;
 
   return (
     <div className={showControls ? "" : "cursor-none"}>
       <div className={view === "game" ? "" : "hidden"}>{children}</div>
       {view === "summary" && summary}
+      {view === "analysis" && analysis}
 
       {view === "slides" &&
         (doc ? (
@@ -159,14 +181,14 @@ export function Presenter({ children, summary }: { children: ReactNode; summary?
           showControls ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       >
-        <div className="flex rounded-lg bg-white/10 p-0.5" title="G: game ⇄ slides (or the clicker's blank-screen button) · S: summary">
-          {((summary ? ["game", "summary", "slides"] : ["game", "slides"]) as View[]).map((v) => (
+        <div className="flex rounded-lg bg-white/10 p-0.5" title="G: game ⇄ slides (or the clicker's blank-screen button) · S: summary · A: statistical analysis">
+          {(["game", ...(summary ? ["summary"] : []), ...(analysis ? ["analysis"] : []), "slides"] as View[]).map((v) => (
             <button
               key={v}
               className={`rounded-md px-3 py-1.5 font-semibold ${view === v ? "bg-white text-navy" : "text-white/80 hover:text-white"}`}
               onClick={() => switchTo(v)}
             >
-              {v === "game" ? "Game" : v === "summary" ? "Summary" : "Slides"}
+              {{ game: "Game", summary: "Summary", analysis: "Analysis", slides: "Slides" }[v]}
             </button>
           ))}
         </div>

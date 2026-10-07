@@ -8,6 +8,7 @@ import { MeritOrderChart, PriceHistoryChart } from "@/components/charts";
 import { eur, formatClock, mw, mwRange, useCountdown } from "@/components/client";
 import { QR, useAppUrl } from "@/components/qr";
 import { Presenter } from "@/components/presenter";
+import { Part3 } from "@/components/part3";
 import { SummaryBody } from "@/components/summary";
 import { Logo, PhaseBadge } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -69,7 +70,7 @@ function SessionPicker() {
 /** The projector: live game and slides on one full screen (see components/presenter.tsx). */
 function Screen({ id }: { id: string }) {
   return (
-    <Presenter summary={<SummaryScreen id={id} />}>
+    <Presenter summary={<SummaryScreen id={id} />} analysis={<Part3Screen id={id} />}>
       <GameScreen id={id} />
     </Presenter>
   );
@@ -98,6 +99,18 @@ function SummaryScreen({ id }: { id: string }) {
     <Stage>
       <Header />
       <SummaryBody session={data} />
+    </Stage>
+  );
+}
+
+/** Statistical analysis: Elena's collusion detection, step by step (components/part3.tsx). */
+function Part3Screen({ id }: { id: string }) {
+  const { data } = useSWR<SessionView>(["screen", id], () => api.screen(id), { refreshInterval: 2000 });
+  if (!data) return null;
+  return (
+    <Stage>
+      <Header />
+      <Part3 id={id} priceCap={data.priceCap} />
     </Stage>
   );
 }

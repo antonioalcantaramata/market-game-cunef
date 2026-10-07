@@ -77,7 +77,7 @@ function CreateSession() {
     name: "Open Day · 24 Oct",
     groups: 10,
     priceCap: 200,
-    roundSeconds: 180,
+    roundSeconds: 45,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -118,7 +118,7 @@ function CreateSession() {
       </label>
       <div className="col-span-full flex items-center justify-between gap-3 sm:col-span-3">
         <p className="text-xs text-ink-3">
-          You can add or remove teams later, until they start bidding. The default plan has 1 practice round, 4 competition rounds and 4 rounds with agreements allowed.
+          You can add or remove teams later, until they start bidding. The default plan has 1 practice round, 7 competition rounds and 7 rounds with agreements allowed (the same hours in both parts).
         </p>
         <button className="btn btn-accent shrink-0" disabled={busy}>Create</button>
       </div>

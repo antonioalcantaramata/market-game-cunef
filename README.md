@@ -33,6 +33,8 @@ are 100 MW with no costs: asking a lot pays more per MWh, but a cheaper team may
 
 ## Puesta en marcha (una vez, ~15 minutos)
 
+> Guía detallada paso a paso, con comprobaciones y solución de problemas: [docs/supabase-setup.md](docs/supabase-setup.md).
+
 ### 1. Supabase (base de datos)
 1. Crea una cuenta gratuita en [supabase.com](https://supabase.com) y un proyecto nuevo
    (región *West EU*, plan *Free*).
@@ -91,13 +93,28 @@ Cada push a `main` vuelve a pasar los tests y publica la web.
      rondas de la parte 2, pasa a **Parte 1 vs Parte 2**: precio medio y pago de los consumidores antes y
      después, comparación por hora, todas las ofertas y «Who broke the deal?» (quién ofreció por debajo del
      precio más común de la parte 2). Arriba a la derecha puedes volver al resumen de la parte 1.
+   - **A**: **análisis estadístico** (el de Elena), también en el menú (*Analysis*). Se abre cuando hay al menos una
+     ronda de la parte 2. Cinco pasos que avanzan con el mando (→ siguiente o termina la animación,
+     ← atrás, **R** repite): (1) la oferta de cada equipo ronda a ronda; (2) el ordenador busca el punto de
+     cambio en las ofertas (distancia de energía, `ecp::e.divisive`) y lo compara con el inicio de los acuerdos;
+     (3) la misma prueba sobre los beneficios; (4) de dónde sale el p-valor: se barajan las rondas 200 veces;
+     (5) oferta frente a beneficio, ronda a ronda. Cada cambio se presenta como significativo al 5 %, al 10 %
+     (si no llega al 5 %) o no significativo.
+     Los cálculos reproducen exactamente `collusion_test.R` (mismos números aleatorios que R con
+     `set.seed(123)`); `scripts/analysis.test.mjs` lo comprueba con los resultados de R.
+     **Juego de ejemplo (respaldo):** con **E** (o el interruptor *This game | Example game*) se muestra un
+     juego simulado de 7 + 7 rondas con resultados claros, por si los de la sesión real salen raros. En
+     pantalla aparece marcado como «Simulated data · not today's session». Es el mismo juego que
+     `data-for-elena/demo-full-game` y está en `lib/backup-game.json`.
    - El juego sigue actualizándose mientras se ven las diapositivas, y cada presentación recuerda en qué
      diapositiva estabas: al volver no se pierde nada. ⛶ pone la pantalla completa.
    - Las animaciones de PowerPoint no se conservan en el PDF; si las necesitas, exporta cada paso como
      una diapositiva.
-4. Abre las rondas una a una desde el panel. Por defecto: 1 de práctica, 4 de competencia y
-   4 con acuerdos (mismas horas y demanda, para comparar). La demanda es un % de la capacidad
-   total y se puede editar antes de abrir cada ronda.
+4. Abre las rondas una a una desde el panel. Por defecto: 1 de práctica, 7 de competencia y
+   7 con acuerdos (las mismas 7 horas del día y la misma demanda, para comparar). La demanda es un %
+   de la capacidad total y se puede editar antes de abrir cada ronda. Son 15 rondas de 45 segundos
+   por defecto (unos 11 minutos pujando, más el tiempo de comentar cada resultado). El tiempo se cambia al
+   crear la sesión o en *Settings*, y con *+30 s* puedes alargar una ronda concreta.
    **Demanda incierta (opcional):** en la columna *Demand · ±🎲* puedes poner una incertidumbre por ronda
    (por ejemplo ±10 %), o aplicarla a todas las rondas pendientes desde *Settings*. Los equipos y el
    proyector ven solo la previsión («324–396 MW»); la demanda real se sortea al abrir la ronda (tú la ves
@@ -154,4 +171,6 @@ bórrala para empezar de cero.
 | `lib/api.ts` | Llamadas del navegador a Supabase |
 | `lib/views.ts` | Convierte los datos en lo que muestra cada pantalla |
 | `lib/game.ts` | Textos de las fases; implementación de referencia de la casación (los tests comprueban que coincide con la de SQL) |
+| `lib/analysis.ts`, `lib/rrandom.ts` | Parte 3: el análisis de Elena (`collusion_test.R`) y el generador aleatorio de R |
+| `components/part3.tsx` | Las cuatro pantallas animadas de la parte 3 |
 | `scripts/*.test.*` | Tests |

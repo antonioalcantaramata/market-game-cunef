@@ -6,7 +6,7 @@
 //   ADMIN_PASSWORD=… node scripts/seed-demo.mjs      # a real Supabase project
 //
 // It creates two sessions:
-//   "Demo · full game"     practice, Part 1 (4 rounds), Part 2 (4 rounds) all played
+//   "Demo · full game"     practice, Part 1 (7 rounds), Part 2 (7 rounds) all played
 //   "Demo · after Part 1"  practice and Part 1 played; Part 2 still to come
 
 const URL = process.env.SUPABASE_URL || "http://localhost:54321";
@@ -35,26 +35,31 @@ const between = (a, b) => Math.round(a + rnd() * (b - a));
 
 const NAMES = ["Los Rayos", "Watt's Up", "Green Volt", "Megawatt Masters", "Solar Squad", "Voltaje", "Las Turbinas", "Enchufados", "Chispas", "Power Nap"];
 
-// How each team plays Part 1: where it starts and how fast it learns to undercut.
+// How each team plays Part 1: where it starts and where it ends after
+// learning, round by round, that cheaper offers get bought.
 const STYLE = [
-  { start: 70, learn: 8 }, // undercutter from the start
-  { start: 120, learn: 20 },
-  { start: 95, learn: 12 },
-  { start: 180, learn: 30 }, // greedy, learns the hard way
-  { start: 110, learn: 15 },
-  { start: 150, learn: 25 },
-  { start: 85, learn: 10 },
-  { start: 135, learn: 22 },
-  { start: 160, learn: 28 },
-  { start: 100, learn: 14 },
+  { start: 70, end: 35 }, // undercutter from the start
+  { start: 120, end: 50 },
+  { start: 95, end: 45 },
+  { start: 180, end: 60 }, // greedy, learns the hard way
+  { start: 110, end: 48 },
+  { start: 150, end: 55 },
+  { start: 85, end: 40 },
+  { start: 135, end: 52 },
+  { start: 160, end: 58 },
+  { start: 100, end: 42 },
 ];
 
-// Part 2: everyone agrees on the cap; the deal erodes as the rounds go by.
+// Part 2: everyone agrees on the cap. The deal holds for three hours, then
+// erodes: one team undercuts, then two, then three, a little lower each time.
 const CARTEL = [
-  () => 200, // R6: the agreement holds
-  (i) => (i === 0 ? 199 : 200), // R7: one team undercuts by 1 €
-  (i) => (i === 0 ? 195 : i === 6 ? 199 : 200), // R8: two cheaters
-  (i) => (i === 0 ? 185 : i === 6 ? 190 : i === 3 ? 198 : 200), // R9: three, and lower
+  () => 200,
+  () => 200,
+  () => 200,
+  (i) => (i === 0 ? 199 : 200),
+  (i) => (i === 0 ? 195 : i === 6 ? 199 : 200),
+  (i) => (i === 0 ? 190 : i === 6 ? 195 : i === 3 ? 198 : 200),
+  (i) => (i === 0 ? 185 : i === 6 ? 190 : i === 3 ? 195 : 200),
 ];
 
 async function seedSession(token, name, { part2 }) {
@@ -90,8 +95,10 @@ async function seedSession(token, name, { part2 }) {
 
   await play(practice, () => between(40, 190));
   const part1 = rest.filter((r) => r.phase === "competition");
-  for (const [k, r] of part1.entries())
-    await play(r, (i) => STYLE[i].start - STYLE[i].learn * k + between(-8, 8));
+  for (const [k, r] of part1.entries()) {
+    const f = part1.length > 1 ? k / (part1.length - 1) : 0;
+    await play(r, (i) => Math.round(STYLE[i].start + (STYLE[i].end - STYLE[i].start) * f) + between(-8, 8));
+  }
   if (part2) {
     const part2Rounds = rest.filter((r) => r.phase === "collusion");
     for (const [k, r] of part2Rounds.entries()) await play(r, CARTEL[k] ?? (() => 200));
