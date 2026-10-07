@@ -75,7 +75,6 @@ function CreateSession() {
   const router = useRouter();
   const [form, setForm] = useState({
     name: "Open Day · 24 Oct",
-    groups: 10,
     priceCap: 200,
     roundSeconds: 45,
   });
@@ -105,10 +104,6 @@ function CreateSession() {
         <input className="input" value={form.name} onChange={set("name")} />
       </label>
       <label className="flex flex-col gap-1 text-sm">
-        Teams
-        <input className="input" type="number" min={1} max={40} value={form.groups} onChange={set("groups")} />
-      </label>
-      <label className="flex flex-col gap-1 text-sm">
         Price cap (€/MWh)
         <input className="input" type="number" min={10} value={form.priceCap} onChange={set("priceCap")} />
       </label>
@@ -118,7 +113,8 @@ function CreateSession() {
       </label>
       <div className="col-span-full flex items-center justify-between gap-3 sm:col-span-3">
         <p className="text-xs text-ink-3">
-          You can add or remove teams later, until they start bidding. The default plan has 1 practice round, 7 competition rounds and 7 rounds with agreements allowed (the same hours in both parts).
+          Groups join by scanning the QR on the projector: each group gets its own team. The default plan has 1 practice
+          round, 7 competition rounds and 7 rounds with agreements allowed (the same hours in both parts).
         </p>
         <button className="btn btn-accent shrink-0" disabled={busy}>Create</button>
       </div>

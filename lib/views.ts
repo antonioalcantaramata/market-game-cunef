@@ -103,7 +103,7 @@ function toRound(r: Row, totalCapacity: number, cap: number, bids: Row[], admin:
 /**
  * Cumulative profit over closed rounds, practice excluded, as summed by the
  * database (Part 1 offers are anonymous, so they cannot be added up here).
- * Unused cards are left out.
+ * Teams nobody opened are left out.
  */
 function leaderboard(groups: GroupView[], totalsRows: Row[]) {
   const totals = new Map(groups.filter((g) => g.joined).map((g) => [g.id, 0]));

@@ -91,14 +91,17 @@ export const api = {
 
   sessions: () => rpc<SessionSummary[]>("admin_sessions", { p_token: getToken() }),
 
-  createSession: (f: { name: string; groups: number; priceCap: number; roundSeconds: number }) =>
+  createSession: (f: { name: string; priceCap: number; roundSeconds: number }) =>
     rpc<{ id: string }>("admin_create_session", {
       p_token: getToken(),
       p_name: f.name,
-      p_groups: f.groups,
       p_price_cap: f.priceCap,
       p_round_seconds: f.roundSeconds,
     }),
+
+  /** Projector QR: a new team for this group, or the team this phone already has. */
+  joinSession: (id: string, code?: string | null) =>
+    rpc<{ code: string; new: boolean }>("join_session", { p_session: id, ...(code ? { p_code: code } : {}) }),
 
   session: (id: string): Promise<SessionView> =>
     rpc<Bundle>("admin_session", { p_token: getToken(), p_session: id }).then((b) => sessionView(b, true)),

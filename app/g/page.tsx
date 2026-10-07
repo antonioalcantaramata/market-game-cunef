@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import useSWR from "swr";
 import { MeritOrderChart } from "@/components/charts";
 import { eur, formatClock, mw, mwRange, useCountdown } from "@/components/client";
 import { Logo, PhaseBadge, Stat } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
+import { rememberTeam } from "@/lib/team-memory";
 import { clearMarket } from "@/lib/game";
 import type { GroupState } from "@/lib/types";
 
@@ -24,6 +25,11 @@ function GroupPage() {
   const { data, error, mutate } = useSWR<GroupState>(code ? ["group", code] : null, () => api.groupState(code), {
     refreshInterval: 2000,
   });
+  // Remember this phone's team, so the projector QR brings it back here.
+  const sessionId = data?.session.id;
+  useEffect(() => {
+    if (sessionId) rememberTeam(sessionId, code);
+  }, [sessionId, code]);
 
   if (!code || (error instanceof ApiError && error.status === 404))
     return (
@@ -43,7 +49,7 @@ function GroupPage() {
 
   return (
     <Shell sessionName={data.session.name}>
-      <PlantCard state={data} onRename={async (name) => mutate(await api.rename(code, name), false)} />
+      <PlantCard state={{ ...data, group: { ...data.group, code } }} onRename={async (name) => mutate(await api.rename(code, name), false)} />
       <CurrentRound state={data} onSubmit={async (bid) => mutate(await api.bid(code, bid), false)} />
       <History state={data} />
     </Shell>
@@ -80,7 +86,15 @@ function PlantCard({ state, onRename }: { state: GroupState; onRename: (name: st
             </button>
           )}
         </div>
+        <div className="shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-center" title="Teammates can join with this code">
+          <div className="text-xs opacity-80">Team code</div>
+          <div className="font-mono text-xl font-bold tracking-[0.15em]">{g.code ?? ""}</div>
+        </div>
       </div>
+      <p className="border-b border-line bg-sand-light px-4 py-2 text-sm text-ink-2">
+        Teammates can follow the game on their phones: scan the projector QR, tap <b>“My group already has a team”</b> and
+        type <b className="font-mono">{g.code}</b>.
+      </p>
       {editing && (
         <form
           className="flex gap-2 border-b border-line p-4"

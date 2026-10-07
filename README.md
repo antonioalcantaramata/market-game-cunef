@@ -23,11 +23,11 @@ are 100 MW with no costs: asking a lot pays more per MWh, but a cheaper team may
 
 | URL | Quién | Para qué |
 |---|---|---|
-| `/` | Todos | Alumnos: introducir el código. Abajo, accesos a *Instructor panel* y *Projector screen* |
+| `/` | Todos | Alumnos: introducir el código de su equipo. Abajo, accesos a *Instructor panel* y *Projector screen* |
+| `/join/?id=ID` | Alumnos | Adonde lleva el QR del proyector: un móvil por grupo pide equipo; el resto del grupo entra con el código |
 | `/g/?code=CODE` | Cada equipo (móvil) | Ficha, enviar oferta, ver resultados |
 | `/admin/` | Profesores | Crear sesiones (contraseña) |
 | `/admin/session/?id=ID` | Profesores | Abrir y cerrar rondas, ver ofertas en directo, descargar datos |
-| `/admin/cards/?id=ID` | Profesores | Tarjetas imprimibles con QR de cada equipo |
 | `/screen/` | Proyector | Lista de sesiones recientes para elegir cuál proyectar (sin contraseña) |
 | `/screen/?id=ID` | Proyector | Sala de espera → ronda abierta → resultados, cambia sola |
 
@@ -67,21 +67,25 @@ Cada push a `main` vuelve a pasar los tests y publica la web.
 - Supabase **pausa los proyectos gratuitos tras 7 días sin uso**. Unos días antes, entra en el panel de
   Supabase (si está pausado, pulsa *Restore*) y haz una prueba completa.
 - Para cambiar la lógica del juego, edita `supabase/schema.sql` y vuelve a ejecutarlo entero en el
-  SQL Editor: es idempotente y conserva los datos.
+  SQL Editor: es idempotente y conserva los datos. Si defines el secreto `SUPABASE_DB_URL` en GitHub
+  (ver [docs/supabase-setup.md](docs/supabase-setup.md), paso 6b), se aplica solo en cada push a `main`.
 
 ## El día del taller
 
-1. Entra en `/admin/` y crea la sesión con **más equipos de los esperados**
-   (por ejemplo 12). Imprime las tarjetas (*Print team cards*) y reparte solo las que hagan falta.
-2. **La demanda se ajusta sola a los equipos que juegan**: cuenta solo los que han abierto su página
-   (punto verde en el panel) y se fija al abrir cada ronda. Las tarjetas sin usar no cuentan y no hay
-   que borrarlas. Si llega un grupo tarde, *+ Add team* y le das el código del panel; contará desde la
-   siguiente ronda. Si un equipo se va a mitad de partida, pulsa *pause*: deja de contar y no puede pujar
-   (*resume* lo devuelve).
+1. Entra en `/admin/` y crea la sesión (nombre, precio máximo, segundos por ronda). Empieza sin equipos.
+2. **Los grupos se unen con el QR del proyector**: un móvil por grupo lo escanea y pulsa *Get a team for my
+   group*; se crea su equipo (central, nombre y código). Ese móvil muestra el **código del equipo**: los
+   demás del grupo pueden seguir el juego escaneando el mismo QR, pulsando *My group already has a team* y
+   escribiendo ese código. Si un móvil escanea dos veces, vuelve a su equipo (no crea otro). Mientras hay
+   una ronda abierta, el proyector muestra un QR pequeño para los grupos que lleguen tarde; cuentan desde
+   la siguiente ronda.
+   **La demanda se ajusta sola a los equipos que juegan** y se fija al abrir cada ronda. Si un equipo se va
+   a mitad de partida, pulsa *pause*: deja de contar y no puede pujar (*resume* lo devuelve). Un equipo
+   creado por error se borra con ✕ mientras no haya pujado.
 3. En el ordenador del proyector, abre la web, pulsa *Projector screen* (abajo en la página de inicio) y
    elige la sesión: no hace falta contraseña ni copiar enlaces. Pon el navegador a pantalla completa.
-   La pantalla muestra el QR y qué equipos se han conectado; espera a que estén todos antes de abrir
-   la ronda de práctica.
+   La pantalla muestra el QR para unirse y los equipos que se van creando; espera a que estén todos
+   antes de abrir la ronda de práctica.
    **Diapositivas en el proyector:** en la vista proyector, mueve el ratón y aparece un menú abajo a la
    derecha. *Load PDF* (o arrastra el PDF a la pantalla) carga tu presentación; se guarda solo en ese
    navegador, no se sube a ningún sitio, y sigue ahí si recargas la página. Puedes cargar varios PDF y

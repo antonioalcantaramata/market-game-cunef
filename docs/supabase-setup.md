@@ -90,13 +90,27 @@ If you see an error instead, check the troubleshooting table at the end.
 
 The values are copied into the site when it is built. If you ever change them, run the workflow again.
 
+### 6b. Optional, recommended: update the database automatically
+
+With this, every push to `main` runs `supabase/schema.sql` on Supabase before publishing the site, so you never have to paste it into the SQL Editor again.
+
+1. In Supabase, click **Connect** (top of the dashboard) → **Connection String** tab → method **Session pooler**. Copy the string. It looks like this:
+   `postgresql://postgres.abcdefghijklmnop:[YOUR-PASSWORD]@aws-0-eu-west-1.pooler.supabase.com:5432/postgres`
+   - Use the **Session pooler**, not *Direct connection*: GitHub cannot reach the direct one (it is IPv6 only on the Free plan).
+2. Replace `[YOUR-PASSWORD]` with the **database password** from step 1 (brackets included). If you lost it: **Project Settings → Database → Reset database password**. This does not affect the game, which only uses the publishable key.
+3. On GitHub: **Settings → Secrets and variables → Actions** → **Secrets** tab (not *Variables*) → **New repository secret**. Name `SUPABASE_DB_URL`, value: the full string.
+
+From then on, the **Deploy to GitHub Pages** run has a first step, *database*. If it fails (e.g. a wrong password), nothing in the database changes and the site is not republished; the error appears in the **Actions** tab. Without this secret, that step just shows a warning and you keep running `schema.sql` by hand.
+
+> This secret gives full access to the database. Keep it only in GitHub Secrets, which nobody can read back, and never in the code.
+
 ## 7. Check that everything works
 
 Open **https://antonioalcantaramata.github.io/market-game-cunef/**:
 
-1. **Instructor panel** (link at the bottom) → your password → create a session, e.g. 4 teams.
+1. **Instructor panel** (link at the bottom) → your password → create a session.
 2. In another window: **Projector screen** → choose the session → it shows the QR code.
-3. On a **real phone** (Wi-Fi or mobile data), scan the QR code, or open the site and type a team code from the panel. The team should appear as *joined* on the projector.
+3. On a **real phone** (Wi-Fi or mobile data), scan the QR code on the projector and tap *Get a team for my group*. The new team should appear on the projector and in the panel.
 4. In the panel, **Open** the practice round, send a price from the phone, then **Close & clear market**. The results should appear on the phone and the projector.
 
 If all this works, everything is connected. You can delete this test session's data by simply ignoring it: the projector lists sessions newest first.

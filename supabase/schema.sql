@@ -181,7 +181,7 @@ begin
 end $$;
 
 -- Capacity that sets the demand of a round: active teams that have shown up
--- (opened their page or bid). Printed cards nobody used do not count. If no
+-- (opened their page or bid). Teams nobody opened do not count. If no
 -- team has shown up yet (e.g. a dry run), every active team counts.
 create or replace function _playing_groups(p_session text) returns setof groups
 language sql stable as $$
@@ -449,12 +449,14 @@ begin
 end $$;
 
 drop function if exists admin_create_session(text, text, integer, double precision, integer, text);
-create or replace function admin_create_session(p_token text, p_name text, p_groups integer,
-  p_price_cap double precision, p_round_seconds integer) returns jsonb
+create or replace function admin_create_session(p_token text, p_name text, p_groups integer default null,
+  p_price_cap double precision default 200, p_round_seconds integer default 45) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare
   v_id text;
-  v_groups integer := greatest(1, least(40, coalesce(p_groups, 10)));
+  -- Teams are normally created as groups scan the join QR (join_session), so a
+  -- new session starts with none; p_groups pre-creates some (demo, tests).
+  v_groups integer := greatest(0, least(60, coalesce(p_groups, 0)));
   v_number integer := 1;
   h record;
   v_phase text;
@@ -710,6 +712,40 @@ begin
       where r.session_id = p_session and r.status = 'closed' and r.phase <> 'practice'), '[]'));
 end $$;
 
+-- ------------------------------------------------------------------ joining
+
+-- The projector's QR. The first phone of each group taps "Get a team" and a
+-- new team is created for it. A phone that already has a team in this session
+-- (p_code) gets that same team back, so scanning twice does not take two.
+-- Other members of the group join by typing the team code instead.
+create or replace function join_session(p_session text, p_code text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  g groups;
+  v_slot integer;
+begin
+  if not exists (select 1 from sessions where id = p_session) then
+    perform _fail('Session not found', 'not_found');
+  end if;
+  -- One join at a time per session, so two phones never get the same slot.
+  perform pg_advisory_xact_lock(hashtext('join:' || p_session));
+
+  if p_code is not null then
+    select * into g from groups where code = upper(trim(p_code)) and session_id = p_session;
+    if found then
+      return jsonb_build_object('code', g.code, 'new', false);
+    end if;
+  end if;
+
+  select coalesce(max(slot), 0) + 1 into v_slot from groups where session_id = p_session;
+  if v_slot > 60 then
+    perform _fail('This session is full. Ask the instructor.');
+  end if;
+  perform _insert_group(p_session, v_slot);
+  update groups set joined_at = now() where session_id = p_session and slot = v_slot returning * into g;
+  return jsonb_build_object('code', g.code, 'new', true);
+end $$;
+
 -- ------------------------------------------------------------------ teams
 
 create or replace function group_state(p_code text) returns jsonb
@@ -806,8 +842,12 @@ grant execute on function
   admin_export(text, text, text),
   screen_state(text),
   screen_sessions(),
+  join_session(text, text),
   analysis_state(text),
   group_state(text),
   group_rename(text, text),
   group_bid(text, integer, double precision)
 to anon, authenticated;
+
+-- Tell the Data API (PostgREST) to pick up new or changed functions now.
+notify pgrst, 'reload schema';

@@ -66,7 +66,7 @@ async function seedSession(token, name, { part2 }) {
   const { id } = await rpc("admin_create_session", {
     p_token: token,
     p_name: name,
-    p_groups: 12, // two cards nobody used
+    p_groups: 12, // two teams nobody opened
     p_price_cap: 200,
     p_round_seconds: 0,
   });

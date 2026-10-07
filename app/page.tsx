@@ -40,7 +40,9 @@ export default function Home() {
         <button className="btn btn-accent py-3 text-lg" disabled={clean.length < 4}>
           Enter the market
         </button>
-        <p className="text-center text-sm text-ink-3">You will find the code on your team card.</p>
+        <p className="text-center text-sm text-ink-3">
+          New here? Scan the QR code on the projector. Already in a group? Type the code on your teammate&apos;s phone.
+        </p>
       </form>
       <nav className="flex justify-center gap-6 text-sm text-ink-3">
         <Link href="/admin" className="underline underline-offset-2 hover:text-navy">Instructor panel</Link>

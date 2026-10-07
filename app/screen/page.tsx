@@ -202,14 +202,14 @@ function TeamTiles({
 }
 
 function Lobby({ session }: { session: SessionView }) {
-  const home = useAppUrl("/");
+  const join = useAppUrl(`/join/?id=${session.id}`);
   return (
     <div className="grid flex-1 grid-cols-[auto_1fr] items-start gap-12 pt-6">
       <div className="card flex flex-col items-center gap-3 p-8">
-        {home && <QR text={home} size={300} />}
+        {join && <QR text={join} size={300} />}
         <div className="text-center text-2xl text-ink-2">
-          Go to <b className="text-navy">{home.replace(/^https?:\/\//, "").replace(/\/$/, "")}</b>
-          <br />and enter your <b>team code</b>
+          <b className="text-navy">Scan to join</b>
+          <br />one phone per group
         </div>
       </div>
       <div className="flex flex-col gap-4">
@@ -218,11 +218,30 @@ function Lobby({ session }: { session: SessionView }) {
           Each hour, every team offers its electricity at a price. The cheapest offers are bought until demand is covered,
           and each team that sells is paid the price it asked for. Ask too much, and you may sell nothing!
         </p>
-        <TeamTiles
-          groups={session.groups.filter((g) => g.active)}
-          done={(gid) => session.groups.find((g) => g.id === gid)?.joined ?? false}
-          doneLabel="✓ joined"
-        />
+        {session.groups.some((g) => g.active) ? (
+          <TeamTiles
+            groups={session.groups.filter((g) => g.active)}
+            done={(gid) => session.groups.find((g) => g.id === gid)?.joined ?? false}
+            doneLabel="✓ joined"
+          />
+        ) : (
+          <p className="text-2xl text-ink-3">Teams will appear here as groups join.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Small join QR for groups that arrive once the game has started. */
+function LateJoin({ sessionId }: { sessionId: string }) {
+  const join = useAppUrl(`/join/?id=${sessionId}`);
+  return (
+    <div className="card flex items-center gap-3 p-3">
+      {join && <QR text={join} size={96} />}
+      <div className="text-base leading-snug text-ink-2">
+        Arrived late?
+        <br />
+        <b className="text-navy">Scan to join</b>
       </div>
     </div>
   );
@@ -262,7 +281,10 @@ function OpenRound({ session, round }: { session: SessionView; round: RoundView 
           🤝 You may now talk to other teams and agree on prices.
         </div>
       )}
-      <TeamTiles groups={session.groups.filter((g) => g.playing)} done={(gid) => round.submittedGroupIds.includes(gid)} />
+      <div className="grid grid-cols-[1fr_auto] items-start gap-6">
+        <TeamTiles groups={session.groups.filter((g) => g.playing)} done={(gid) => round.submittedGroupIds.includes(gid)} />
+        <LateJoin sessionId={session.id} />
+      </div>
       {hasHistory && (
         <div className="card mt-auto p-4">
           <PriceHistoryChart

@@ -198,7 +198,7 @@ test("the schema can be run again on a live database without losing data", async
 // ---------------------------------------------------------------- turnout
 
 test("demand follows the teams that show up; paused teams drop out", async () => {
-  const s = await newSession(6); // 6 cards printed
+  const s = await newSession(6); // 6 teams created, 4 of them used
   const [a, b, c, d, unused1, unused2] = s.groups;
   const byNumber = (st, n) => st.rounds.find((r) => r.number === n);
 
@@ -238,7 +238,7 @@ test("demand follows the teams that show up; paused teams drop out", async () =>
   assert.equal(r2.find((x) => x.group_id === b.id).dispatched, 100); // only b offered: 100 of 135 MW
   await act(s.id, { action: "setActive", groupId: a.id, active: true });
 
-  // Unused cards can simply be removed.
+  // Teams nobody used can simply be removed.
   st = await act(s.id, { action: "removeGroup", groupId: unused1.id });
   st = await act(s.id, { action: "removeGroup", groupId: unused2.id });
   assert.equal(st.groups.length, 4);
@@ -432,4 +432,29 @@ test("Part 3 data opens only after a Part 2 round, with every offer and no names
   assert.equal(data.offers.length, 8);
   assert.deepEqual(Object.keys(data.offers[0]).sort(), ["price", "profit", "round", "slot"]);
   await assert.rejects(rpc("analysis_state", { p_session: "nope" }), /Session not found/);
+});
+
+// ---------------------------------------------------------------- joining with the projector QR
+
+test("the join QR creates one team per group; the same phone keeps its team", async () => {
+  const { id } = await admin("admin_create_session", { p_name: "QR", p_price_cap: 200, p_round_seconds: 45 });
+  let st = await admin("admin_session", { p_session: id });
+  assert.equal(st.groups.length, 0); // a new session starts without teams
+  assert.equal(st.session.round_seconds, 45);
+  assert.equal(st.rounds.length, 15);
+
+  const a = await rpc("join_session", { p_session: id });
+  const b = await rpc("join_session", { p_session: id });
+  assert.ok(a.new && b.new && a.code !== b.code);
+  assert.deepEqual(await rpc("join_session", { p_session: id, p_code: a.code.toLowerCase() }), { code: a.code, new: false });
+
+  st = await admin("admin_session", { p_session: id });
+  assert.deepEqual(st.groups.map((g) => [g.slot, g.technology]), [[1, "Nuclear"], [2, "Combined-cycle gas"]]);
+  assert.ok(st.groups.every((g) => g.joined_at)); // both count towards demand
+
+  // A code from another session does not get you into this one: you get a new team.
+  const other = await newSession(1);
+  const c = await rpc("join_session", { p_session: id, p_code: other.groups[0].code });
+  assert.ok(c.new && c.code !== other.groups[0].code);
+  await assert.rejects(rpc("join_session", { p_session: "nope" }), /Session not found/);
 });

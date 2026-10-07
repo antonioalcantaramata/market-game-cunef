@@ -64,7 +64,6 @@ function ControlPanel() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link className="btn btn-primary" href={`/screen?id=${data.id}`} target="_blank">Projector screen ↗</Link>
-          <Link className="btn btn-ghost" href={`/admin/cards?id=${data.id}`} target="_blank">Print team cards</Link>
           <ExportMenu id={data.id} />
         </div>
       </header>
@@ -412,9 +411,9 @@ function Teams({ session, open, act }: { session: SessionView; open?: RoundView;
         </table>
       </div>
       <p className="mt-2 text-xs text-ink-3">
-        <span className="text-teal">●</span> joined (opened its page) · <span>●</span> card not used yet ·{" "}
+        <span className="text-teal">●</span> joined · <span>●</span> created but not opened yet ·{" "}
         <span className="text-maroon">●</span> paused. Demand only counts joined teams (all of them while nobody has
-        joined yet), so unused cards need no action. Earnings exclude the practice round.
+        joined yet). Teams appear here as groups scan the QR on the projector. Earnings exclude the practice round.
       </p>
     </section>
   );

@@ -1,7 +1,10 @@
-# Builds the static site and publishes it on GitHub Pages on every push to main.
+# On every push to main: updates the Supabase database with supabase/schema.sql,
+# then builds the static site and publishes it on GitHub Pages.
 # Needs two repository variables (Settings → Secrets and variables → Actions → Variables):
 #   SUPABASE_URL       https://<project>.supabase.co
 #   SUPABASE_ANON_KEY  the project's publishable (anon) key — public by design
+# and, to update the database automatically, one repository secret (… → Secrets):
+#   SUPABASE_DB_URL    the "Session pooler" connection string, with the database password
 name: Deploy to GitHub Pages
 
 on:
@@ -19,7 +22,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The schema is idempotent and runs as one transaction: if anything fails,
+      # the database is left as it was and the site is not published.
+      - name: Apply supabase/schema.sql
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::warning::SUPABASE_DB_URL is not set: run supabase/schema.sql by hand in the SQL Editor."
+            exit 0
+          fi
+          psql "$SUPABASE_DB_URL" --single-transaction -v ON_ERROR_STOP=1 -q -f supabase/schema.sql
+
   build:
+    needs: database
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
