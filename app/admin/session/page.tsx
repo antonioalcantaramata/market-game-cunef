@@ -5,13 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import useSWR from "swr";
 import { MeritOrderChart, PriceHistoryChart } from "@/components/charts";
-import { eur, formatClock, mw, mwRange, useCountdown } from "@/components/client";
+import { eur, formatClock, mw, mwRange, useCountdown, useOnline } from "@/components/client";
 import { Logo, PhaseBadge } from "@/components/ui";
 import { PHASE_LABEL, type Phase } from "@/lib/game";
 
 const PHASE_SHORT: Record<Phase, string> = { practice: "Practice", competition: "Part 1", collusion: "Part 2 🤝" };
 import { api, ApiError } from "@/lib/api";
 import { downloadCsv, EXPORTS } from "@/lib/exports";
+import { live } from "@/lib/poll";
 import type { RoundView, SessionView } from "@/lib/types";
 
 export default function Page() {
@@ -24,11 +25,12 @@ export default function Page() {
 
 function ControlPanel() {
   const id = useSearchParams().get("id") ?? "";
-  const { data, error, mutate } = useSWR<SessionView>(id ? ["admin-session", id] : null, () => api.session(id), {
-    refreshInterval: 2000,
-  });
+  const { data, error, mutate } = useSWR<SessionView>(id ? ["admin-session", id] : null, () => api.session(id), live(2000));
+  const online = useOnline();
   const [err, setErr] = useState("");
-  const [selected, setSelected] = useState<number | null>(null);
+  // A round clicked in the table stays selected only until a round opens or closes,
+  // so the live offers come back by themselves.
+  const [selected, setSelected] = useState<{ id: number; openId: number | null } | null>(null);
 
   const act = async (payload: Record<string, unknown>) => {
     setErr("");
@@ -41,12 +43,13 @@ function ControlPanel() {
 
   if (error instanceof ApiError && error.status === 401)
     return <p className="p-10 text-center">Please <Link className="underline" href="/admin">log in</Link> first.</p>;
-  if (error) return <p className="p-10 text-center text-maroon">{error.message}</p>;
+  if (error && !data) return <p className="p-10 text-center text-maroon">{error.message}</p>;
   if (!data) return <p className="p-10 text-center text-ink-3">Loading…</p>;
 
   const open = data.rounds.find((r) => r.status === "open");
   const lastClosed = [...data.rounds].reverse().find((r) => r.status === "closed");
-  const shown = data.rounds.find((r) => r.id === selected) ?? open ?? lastClosed;
+  const selectedId = selected && selected.openId === (open?.id ?? null) ? selected.id : null;
+  const shown = data.rounds.find((r) => r.id === selectedId) ?? open ?? lastClosed;
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-6">
@@ -68,6 +71,12 @@ function ControlPanel() {
         </div>
       </header>
 
+      {(error || !online) && (
+        <div className="rounded-lg bg-orange/15 px-4 py-2 text-sm font-semibold">
+          Connection lost. Reconnecting… (what you see may be a few seconds old)
+        </div>
+      )}
+
       {err && (
         <div className="flex items-center justify-between rounded-lg bg-maroon/10 px-4 py-2 text-maroon">
           {err} <button onClick={() => setErr("")} aria-label="Dismiss">✕</button>
@@ -77,7 +86,7 @@ function ControlPanel() {
       {open && <LiveRound session={data} round={open} act={act} />}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        <Rounds session={data} act={act} selected={shown?.id} onSelect={setSelected} />
+        <Rounds session={data} act={act} selected={shown?.id} onSelect={(rid) => setSelected({ id: rid, openId: open?.id ?? null })} />
         <Teams session={data} open={open} act={act} />
       </div>
 
@@ -161,10 +170,11 @@ function Rounds({
   onSelect: (id: number) => void;
 }) {
   const hasOpen = session.rounds.some((r) => r.status === "open");
+  const next = session.rounds.find((r) => r.status === "pending");
   const [draft, setDraft] = useState<{ label: string; phase: Phase; pct: number; spread: number }>({
     label: "",
     phase: "collusion",
-    pct: 70,
+    pct: 55,
     spread: 0,
   });
 
@@ -178,7 +188,7 @@ function Rounds({
               <th className="py-1 font-medium">#</th>
               <th className="py-1 font-medium">Hour</th>
               <th className="py-1 font-medium">Phase</th>
-              <th className="py-1 text-right font-medium" title="% of the capacity of the teams playing · ± uncertainty (teams see a range, the real value is drawn at random)">
+              <th className="py-1 text-right font-medium" title="% of the capacity of the teams playing, kept so that 50–60% of the teams can sell · ± uncertainty (teams see a range, the real value is drawn at random)">
                 Demand · ±🎲
               </th>
               <th className="py-1 text-right font-medium">Avg · top</th>
@@ -245,9 +255,9 @@ function Rounds({
                       %
                       <div className="text-xs text-ink-3">
                         ≈ {mwRange(r.demandLow, r.demandHigh)}
-                        {r.demandCapped && (
-                          <span title="Capped so at least one plant is always left unsold" className="ml-1 text-orange">
-                            · capped
+                        {r.demandAdjusted && (
+                          <span title="Adjusted so that 50–60% of the teams can sell" className="ml-1 text-orange">
+                            · adjusted
                           </span>
                         )}
                       </div>
@@ -278,7 +288,18 @@ function Rounds({
                 <td className="py-1.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                   {r.status === "pending" && (
                     <>
-                      <button className="btn btn-primary px-2.5 py-1 text-xs" disabled={hasOpen} onClick={() => act({ action: "openRound", roundId: r.id })}>
+                      <button
+                        className={`btn px-2.5 py-1 text-xs ${r.id === next?.id ? "btn-primary" : "btn-ghost"}`}
+                        disabled={hasOpen}
+                        onClick={() =>
+                          // An open round cannot be taken back (only closed and reset), so skipping ahead asks first.
+                          (r.id === next?.id ||
+                            confirm(
+                              `Round ${next?.number} (${next?.label}) has not been played yet.\n\nOpen round ${r.number} · ${r.label} (${PHASE_LABEL[r.phase]}) instead?`,
+                            )) &&
+                          act({ action: "openRound", roundId: r.id })
+                        }
+                      >
                         Open
                       </button>
                       <button
@@ -391,7 +412,15 @@ function Teams({ session, open, act }: { session: SessionView; open?: RoundView;
                       <button
                         className="px-1.5 text-xs text-ink-3 underline hover:text-navy"
                         title={g.active ? "The team left: stop counting it and block its offers" : "Bring the team back"}
-                        onClick={() => act({ action: "setActive", groupId: g.id, active: !g.active })}
+                        onClick={() =>
+                          (!g.active ||
+                            confirm(
+                              bid
+                                ? `${g.displayName} has already sent an offer in this round. Pausing it now leaves that offer out of this round.\n\nPause anyway?`
+                                : `Pause ${g.displayName}? It stops counting in the demand and cannot send offers until you resume it.`,
+                            )) &&
+                          act({ action: "setActive", groupId: g.id, active: !g.active })
+                        }
                       >
                         {g.active ? "pause" : "resume"}
                       </button>

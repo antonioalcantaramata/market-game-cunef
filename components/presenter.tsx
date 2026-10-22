@@ -3,13 +3,19 @@
 // Projector presenter: switches between the live game, the summary of the
 // parts played so far, the statistical analysis (collusion detection) and a PDF deck on the
 // same full screen. The game stays mounted (hidden) while slides are shown,
-// so it keeps updating and comes back exactly where it is. The view, the deck
-// and the slide of each deck are remembered in this browser.
+// so it keeps updating and comes back exactly where it is; so does the analysis
+// once opened. The view and the slide of each deck are remembered in this
+// browser for each session (a rehearsal does not leave the real session on its
+// last slide); the decks themselves are kept for every session.
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { SlideCanvas, useDecks, usePdf } from "./slides";
 
 type View = "game" | "summary" | "analysis" | "slides";
+
+const ViewContext = createContext<View>("game");
+/** The view on screen, so a hidden view (e.g. the analysis) can ignore the clicker. */
+export const useView = () => useContext(ViewContext);
 
 const KEY = "market-game:projector:";
 
@@ -37,18 +43,23 @@ const SUMMARY = new Set(["s", "S"]);
 const ANALYSIS = new Set(["a", "A"]); // statistical analysis; its own steps use the clicker (see components/part3.tsx)
 
 export function Presenter({
+  session,
   children,
   summary,
   analysis,
 }: {
+  session: string;
   children: ReactNode;
   summary?: ReactNode;
   analysis?: ReactNode;
 }) {
   const { decks, ready, add, remove } = useDecks();
-  const [view, setView] = useState<View>(() => load<View>("view", "game"));
+  const [view, setView] = useState<View>(() => load<View>(`view:${session}`, "game"));
   const [deckName, setDeckName] = useState<string | null>(() => load<string | null>("deck", null));
-  const [pages, setPages] = useState<Record<string, number>>(() => load("pages", {}));
+  const [pages, setPages] = useState<Record<string, number>>(() => load(`pages:${session}`, {}));
+  // The analysis is mounted the first time it is shown and then kept, so leaving
+  // it for a slide and coming back does not restart it.
+  const [analysisOpened, setAnalysisOpened] = useState(view === "analysis");
   const [active, setActive] = useState(true); // mouse moved recently → show the controls
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -59,7 +70,8 @@ export function Presenter({
 
   const switchTo = (v: View) => {
     setView(v);
-    save("view", v);
+    save(`view:${session}`, v);
+    if (v === "analysis") setAnalysisOpened(true);
   };
   const chooseDeck = (name: string) => {
     setDeckName(name);
@@ -70,7 +82,7 @@ export function Presenter({
     const p = Math.min(Math.max(1, n), total);
     setPages((ps) => {
       const next = { ...ps, [deck.name]: p };
-      save("pages", next);
+      save(`pages:${session}`, next);
       return next;
     });
   };
@@ -109,6 +121,23 @@ export function Presenter({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  // Keep the projector's display awake: nobody touches this computer for long stretches.
+  useEffect(() => {
+    let lock: { release: () => Promise<void> } | null = null;
+    const request = async () => {
+      try {
+        if (document.visibilityState === "visible" && "wakeLock" in navigator)
+          lock = await (navigator as Navigator & { wakeLock: { request: (t: "screen") => Promise<typeof lock> } }).wakeLock.request("screen");
+      } catch {} // not allowed or not supported: the display settings decide
+    };
+    request();
+    document.addEventListener("visibilitychange", request);
+    return () => {
+      document.removeEventListener("visibilitychange", request);
+      lock?.release().catch(() => {});
+    };
+  }, []);
 
   // Controls and cursor appear when the mouse moves and hide after 3 s.
   useEffect(() => {
@@ -152,10 +181,11 @@ export function Presenter({
   if (!hydrated) return null;
 
   return (
+    <ViewContext.Provider value={view}>
     <div className={showControls ? "" : "cursor-none"}>
       <div className={view === "game" ? "" : "hidden"}>{children}</div>
       {view === "summary" && summary}
-      {view === "analysis" && analysis}
+      {analysisOpened && <div className={view === "analysis" ? "" : "hidden"}>{analysis}</div>}
 
       {view === "slides" &&
         (doc ? (
@@ -180,6 +210,11 @@ export function Presenter({
         className={`fixed right-4 bottom-4 z-50 flex items-center gap-1 rounded-xl bg-black/75 p-1.5 text-sm text-white shadow-lg transition-opacity ${
           showControls ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
+        // A clicked button keeps the keyboard focus, and the clicker's Enter/Space would press it again.
+        onClick={(e) => {
+          const t = e.target as HTMLElement;
+          if (t.tagName === "BUTTON") t.blur();
+        }}
       >
         <div className="flex rounded-lg bg-white/10 p-0.5" title="G: game ⇄ slides (or the clicker's blank-screen button) · S: summary · A: statistical analysis">
           {(["game", ...(summary ? ["summary"] : []), ...(analysis ? ["analysis"] : []), "slides"] as View[]).map((v) => (
@@ -209,7 +244,10 @@ export function Presenter({
           <select
             className="max-w-48 rounded-md bg-white/10 px-2 py-1.5"
             value={deck?.name}
-            onChange={(e) => chooseDeck(e.target.value)}
+            onChange={(e) => {
+              chooseDeck(e.target.value);
+              e.currentTarget.blur(); // give the clicker back its keys
+            }}
             title="Deck"
           >
             {decks.map((d) => (
@@ -250,5 +288,6 @@ export function Presenter({
         />
       </div>
     </div>
+    </ViewContext.Provider>
   );
 }

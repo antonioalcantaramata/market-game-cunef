@@ -2,6 +2,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { clearMarket } from "../lib/game.ts";
+import { sessionView } from "../lib/views.ts";
 import { callRpc, openDatabase } from "./local-db.mjs";
 
 let db;
@@ -52,6 +53,18 @@ test("SQL clearing matches the TypeScript reference on 300 random markets", asyn
       for (const k of ["dispatched", "profit"])
         assert.ok(Math.abs(Number(row[k]) - d[k]) <= 0.011, `${k} group ${d.groupId}: sql ${row[k]} vs ts ${d[k]} (${ctx})`);
     });
+  }
+});
+
+test("a rounding leftover never makes the next offer look bought", async () => {
+  // 129 MW over 20/30/40: 100 at 20, 29 at 30, and 29 - 100·0.29 = 3.6e-15 MW left over.
+  for (const demand of [129, 157, 228]) {
+    const offers = [20, 30, 40].map((price, k) => ({ groupId: k + 1, price, quantity: 100 }));
+    const ts = clearMarket(demand, offers);
+    const { rows } = await db.query("select _clear_market($1, $2::jsonb) as r", [demand, JSON.stringify(offers)]);
+    const top = offers.filter((o) => o.price < 40 || demand > 200).at(-1).price;
+    assert.equal(ts.marginalPrice, top, `ts, demand ${demand}`);
+    assert.equal(Number(rows[0].r.marginalPrice), top, `sql, demand ${demand}`);
   }
 });
 
@@ -110,8 +123,8 @@ test("pay-as-bid: identical plants, own price paid, cartel undercut", async () =
     ["practice", ...Array(7).fill("competition"), ...Array(7).fill("collusion")],
   );
 
-  // 85% of 400 MW = 340, capped at 300 MW so one plant is always left over.
-  const round = s.rounds.find((r) => r.phase === "collusion" && r.demand_share === 0.85);
+  // 60% of 400 MW = 240, kept at 200 MW so that 2 of the 4 plants are needed.
+  const round = s.rounds.find((r) => r.phase === "collusion" && r.demand_share === 0.6);
   await act(s.id, { action: "openRound", roundId: round.id });
   const prices = [199, 200, 200, 200];
   for (const [i, g] of s.groups.entries())
@@ -123,14 +136,14 @@ test("pay-as-bid: identical plants, own price paid, cartel undercut", async () =
   const r = after.rounds.find((x) => x.id === round.id);
   const bids = Object.fromEntries(after.bids.filter((b) => b.round_id === round.id).map((b) => [b.group_id, b]));
   const [cheater, , , last] = s.groups;
-  assert.equal(r.demand_mw, 300);
+  assert.equal(r.demand_mw, 200);
   assert.equal(bids[cheater.id].quantity, 100); // quantity is always the whole plant
   assert.equal(bids[cheater.id].dispatched, 100);
   assert.equal(bids[cheater.id].profit, 19900);
-  assert.equal(bids[last.id].dispatched, 66.67); // the cartel shares the remaining 200 MW
+  assert.equal(bids[last.id].dispatched, 33.33); // the cartel shares the remaining 100 MW
   assert.equal(bids[last.id].revisions, 2);
   assert.equal(r.marginal_price, 200);
-  assert.equal(r.clearing_price, Math.round(((199 * 100 + 200 * 200) / 300) * 100) / 100);
+  assert.equal(r.clearing_price, Math.round(((199 * 100 + 200 * 100) / 200) * 100) / 100);
 
   await assert.rejects(
     rpc("group_bid", { p_code: cheater.code, p_round: round.id, p_price: 1 }),
@@ -178,6 +191,25 @@ test("instructor actions and validation", async () => {
   assert.equal(renamed.me.name, "Team Sol");
   const list = await admin("admin_sessions");
   assert.ok(list.some((x) => x.id === s.id));
+
+  // Session settings that would block the game are refused.
+  await assert.rejects(act(s.id, { action: "updateSession", priceCap: 0 }), /price cap/);
+  await assert.rejects(act(s.id, { action: "updateSession", priceCap: -5 }), /price cap/);
+  await assert.rejects(act(s.id, { action: "updateSession", roundSeconds: -1 }), /Seconds per round/);
+  st = await act(s.id, { action: "updateSession", priceCap: 180, roundSeconds: 60 });
+  assert.deepEqual([st.session.price_cap, st.session.round_seconds], [180, 60]);
+});
+
+test("while a round is open, others see who has bid in a neutral order", async () => {
+  const s = await newSession(6);
+  for (const g of s.groups) await rpc("group_state", { p_code: g.code });
+  const round = s.rounds[1];
+  await act(s.id, { action: "openRound", roundId: round.id });
+  for (const g of [...s.groups].reverse()) await rpc("group_bid", { p_code: g.code, p_round: round.id, p_price: 50 });
+  for (const payload of [await rpc("screen_state", { p_session: s.id }), await rpc("group_state", { p_code: s.groups[0].code })]) {
+    const ids = payload.bids.filter((b) => b.round_id === round.id).map((b) => b.group_id);
+    assert.deepEqual(ids, [...ids].sort((a, b) => a - b));
+  }
 });
 
 test("plant names: the first 12 differ, then they repeat as III, IV…", async () => {
@@ -202,15 +234,15 @@ test("demand follows the teams that show up; paused teams drop out", async () =>
   const [a, b, c, d, unused1, unused2] = s.groups;
   const byNumber = (st, n) => st.rounds.find((r) => r.number === n);
 
-  // Nobody has shown up yet: a dry run counts every team (60% of 600 MW).
+  // Nobody has shown up yet: a dry run counts every team (50% of 600 MW).
   let st = await act(s.id, { action: "openRound", roundId: byNumber(s, 1).id });
-  assert.equal(byNumber(st, 1).demand_mw, 360);
+  assert.equal(byNumber(st, 1).demand_mw, 300);
   await act(s.id, { action: "resetRound", roundId: byNumber(s, 1).id });
 
-  // Three teams have opened their page when the round opens: 60% of 300 MW.
+  // Three teams have opened their page when the round opens: 50% of 300 MW.
   for (const g of [a, b, c]) await rpc("group_state", { p_code: g.code });
   st = await act(s.id, { action: "openRound", roundId: byNumber(s, 1).id });
-  assert.equal(byNumber(st, 1).demand_mw, 180);
+  assert.equal(byNumber(st, 1).demand_mw, 150);
   // A late fourth team bids straight away; from now on it counts too.
   await rpc("group_bid", { p_code: d.code, p_round: byNumber(s, 1).id, p_price: 10 });
   for (const g of [a, b, c]) await rpc("group_bid", { p_code: g.code, p_round: byNumber(s, 1).id, p_price: 50 });
@@ -221,8 +253,8 @@ test("demand follows the teams that show up; paused teams drop out", async () =>
   // Team d leaves mid-game: paused, it no longer counts nor can bid.
   st = await act(s.id, { action: "setActive", groupId: d.id, active: false });
   assert.equal(st.groups.find((g) => g.id === d.id).active, false);
-  st = await act(s.id, { action: "openRound", roundId: byNumber(s, 2).id }); // 45% of 300
-  assert.equal(byNumber(st, 2).demand_mw, 135);
+  st = await act(s.id, { action: "openRound", roundId: byNumber(s, 2).id }); // 43% of 300
+  assert.equal(byNumber(st, 2).demand_mw, 129);
   await assert.rejects(
     rpc("group_bid", { p_code: d.code, p_round: byNumber(s, 2).id, p_price: 5 }),
     /paused/,
@@ -235,7 +267,7 @@ test("demand follows the teams that show up; paused teams drop out", async () =>
   st = await act(s.id, { action: "closeRound", roundId: byNumber(s, 2).id });
   const r2 = st.bids.filter((x) => x.round_id === byNumber(s, 2).id);
   assert.equal(r2.find((x) => x.group_id === a.id).dispatched, null);
-  assert.equal(r2.find((x) => x.group_id === b.id).dispatched, 100); // only b offered: 100 of 135 MW
+  assert.equal(r2.find((x) => x.group_id === b.id).dispatched, 100); // only b offered: 100 of 129 MW
   await act(s.id, { action: "setActive", groupId: a.id, active: true });
 
   // Teams nobody used can simply be removed.
@@ -247,7 +279,7 @@ test("demand follows the teams that show up; paused teams drop out", async () =>
 // ---------------------------------------------------------------- demand uncertainty
 
 test("uncertain demand: teams see a forecast range, the real value is drawn and revealed at close", async () => {
-  const s = await newSession(10); // 1000 MW; round 3 is 60% → base 600 MW
+  const s = await newSession(10); // 1000 MW; round 3 is 50% → base 500 MW
   const [a, b] = s.groups;
   const r3 = s.rounds.find((r) => r.number === 3);
   await assert.rejects(act(s.id, { action: "updateRound", roundId: r3.id, demandSpread: 0.8 }), /Uncertainty/);
@@ -256,14 +288,14 @@ test("uncertain demand: teams see a forecast range, the real value is drawn and 
 
   st = await act(s.id, { action: "openRound", roundId: r3.id });
   const opened = st.rounds.find((r) => r.id === r3.id);
-  assert.deepEqual([opened.demand_low, opened.demand_high], [570, 630]);
-  assert.ok(opened.demand_mw >= 570 && opened.demand_mw <= 630 && Number.isInteger(opened.demand_mw));
+  assert.deepEqual([opened.demand_low, opened.demand_high], [475, 525]);
+  assert.ok(opened.demand_mw >= 475 && opened.demand_mw <= 525 && Number.isInteger(opened.demand_mw));
 
   // While open, teams and the projector only get the range.
   const team = await rpc("group_state", { p_code: a.code });
   const seen = team.rounds.find((r) => r.id === r3.id);
   assert.equal(seen.demand_mw, undefined);
-  assert.deepEqual([seen.demand_low, seen.demand_high], [570, 630]);
+  assert.deepEqual([seen.demand_low, seen.demand_high], [475, 525]);
   const screen = await rpc("screen_state", { p_session: s.id });
   assert.equal(screen.rounds.find((r) => r.id === r3.id).demand_mw, undefined);
 
@@ -285,8 +317,8 @@ test("uncertain demand: teams see a forecast range, the real value is drawn and 
   const r4 = s.rounds.find((r) => r.number === 4);
   st = await act(s.id, { action: "openRound", roundId: r4.id });
   const exact = st.rounds.find((r) => r.id === r4.id);
-  assert.deepEqual([exact.demand_low, exact.demand_mw, exact.demand_high], [700, 700, 700]); // round 4: 70%, exact
-  assert.equal((await rpc("screen_state", { p_session: s.id })).rounds.find((r) => r.id === r4.id).demand_mw, 700);
+  assert.deepEqual([exact.demand_low, exact.demand_mw, exact.demand_high], [550, 550, 550]); // round 4: 55%, exact
+  assert.equal((await rpc("screen_state", { p_session: s.id })).rounds.find((r) => r.id === r4.id).demand_mw, 550);
   await act(s.id, { action: "closeRound", roundId: r4.id });
 
   st = await act(s.id, { action: "setSpreadAll", demandSpread: 0.1 });
@@ -318,37 +350,50 @@ test("before Part 2 starts, phones and projector receive nothing about agreement
   assert.equal(plan.rounds.length, 15); // the instructor still sees the whole plan
 });
 
-// ---------------------------------------------------------------- demand cap
+// ---------------------------------------------------------------- 50-60% of the teams sell
 
-test("demand never covers every plant: at least one is left over", async () => {
+test("demand is kept so that 50-60% of the teams sell, never all of them", async () => {
+  // Four teams at the 20:00 peak (60% → 240 MW, ±10% → 216–264): moved into the
+  // window for 2 of 4 plants (125–200 MW).
   const s = await newSession(4);
   for (const g of s.groups) await rpc("group_state", { p_code: g.code });
-  const peak = s.rounds.find((r) => r.phase === "competition" && r.demand_share === 0.85); // 340 of 400
-  let st = await act(s.id, { action: "updateRound", roundId: peak.id, demandSpread: 0.1 });
-  st = await act(s.id, { action: "openRound", roundId: peak.id });
+  const peak = s.rounds.find((r) => r.phase === "competition" && r.demand_share === 0.6);
+  await act(s.id, { action: "updateRound", roundId: peak.id, demandSpread: 0.1 });
+  let st = await act(s.id, { action: "openRound", roundId: peak.id });
   const r = st.rounds.find((x) => x.id === peak.id);
-  assert.deepEqual([r.demand_low, r.demand_high], [300, 300]); // 306–374 capped to 300
-  assert.equal(r.demand_mw, 300);
-
-  // With distinct prices the most expensive team sells nothing.
+  assert.deepEqual([r.demand_low, r.demand_mw, r.demand_high], [200, 200, 200]);
   for (const [i, g] of s.groups.entries()) await rpc("group_bid", { p_code: g.code, p_round: peak.id, p_price: 50 + i });
   st = await act(s.id, { action: "closeRound", roundId: peak.id });
   const sold = s.groups.map((g) => st.bids.find((b) => b.round_id === peak.id && b.group_id === g.id).dispatched);
-  assert.deepEqual(sold, [100, 100, 100, 0]);
+  assert.deepEqual(sold, [100, 100, 0, 0]);
 
-  // Ten teams at 85%: 850 MW is already below the cap of 900, nothing changes.
-  const big = await newSession(10);
-  for (const g of big.groups) await rpc("group_state", { p_code: g.code });
-  const bigPeak = big.rounds.find((x) => x.phase === "competition" && x.demand_share === 0.85);
-  st = await act(big.id, { action: "updateRound", roundId: bigPeak.id, demandSpread: 0.1 });
-  st = await act(big.id, { action: "openRound", roundId: bigPeak.id });
-  const rb = st.rounds.find((x) => x.id === bigPeak.id);
-  assert.deepEqual([rb.demand_low, rb.demand_high], [765, 900]); // 765–935, top capped at 900
+  // Every hour of the default plan, ±10% uncertainty, 2 to 15 teams with different
+  // prices: the share of teams that sell stays in 50-60% (3 teams: 2 of 3, the closest).
+  for (let n = 2; n <= 15; n++) {
+    const game = await newSession(n);
+    for (const g of game.groups) await rpc("group_state", { p_code: g.code });
+    await act(game.id, { action: "setSpreadAll", demandSpread: 0.1 });
+    for (const round of game.rounds.filter((x) => x.phase === "competition")) {
+      // The panel previews exactly the range the database will use.
+      const preview = sessionView(await admin("admin_session", { p_session: game.id }), true).rounds.find((x) => x.id === round.id);
+      st = await act(game.id, { action: "openRound", roundId: round.id });
+      const opened = st.rounds.find((x) => x.id === round.id);
+      assert.deepEqual([preview.demandLow, preview.demandHigh], [opened.demand_low, opened.demand_high]);
+      for (const [i, g] of game.groups.entries()) {
+        await rpc("group_bid", { p_code: g.code, p_round: round.id, p_price: 20 + 3 * (n - i) });
+      }
+      st = await act(game.id, { action: "closeRound", roundId: round.id });
+      const sellers = st.bids.filter((b) => b.round_id === round.id && b.dispatched > 0);
+      const share = sellers.length / n;
+      const ok = n === 3 ? sellers.length === 2 : share >= 0.5 && share <= 0.6;
+      assert.ok(ok, `${n} teams, ${round.label}, ${opened.demand_low}–${opened.demand_high} MW: ${sellers.length} sell`);
+    }
+  }
 
-  // A lone team is not capped to zero.
+  // A lone team is not left out (43% of its 100 MW at 02:00).
   const solo = await newSession(1);
   st = await act(solo.id, { action: "openRound", roundId: solo.rounds[1].id });
-  assert.equal(st.rounds[1].demand_mw, 45);
+  assert.equal(st.rounds[1].demand_mw, 43);
 });
 
 // ---------------------------------------------------------------- anonymity in Part 1

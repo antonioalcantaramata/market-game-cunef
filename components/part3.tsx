@@ -15,6 +15,8 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
+import { live as livePoll } from "@/lib/poll";
+import { useView } from "./presenter";
 import { buildPanel, runAnalysis, ANALYSIS_SETTINGS, type Analysis, type PanelInput } from "@/lib/analysis";
 import backupGame from "@/lib/backup-game.json";
 import type { Phase } from "@/lib/game";
@@ -66,20 +68,22 @@ function useClock(duration: number, run: number, done: boolean) {
 // ---------------------------------------------------------------- controller
 
 type Source = "live" | "example";
-const SOURCE_KEY = "market-game:analysis-source";
+// Remembered per session, so an "example game" chosen in a rehearsal does not carry over.
+const SOURCE_KEY = "market-game:analysis-source:";
 const EXAMPLE_PRICE_CAP = 200;
 
-function loadSource(): Source {
+function loadSource(id: string): Source {
   try {
-    return localStorage.getItem(SOURCE_KEY) === "example" ? "example" : "live";
+    return localStorage.getItem(SOURCE_KEY + id) === "example" ? "example" : "live";
   } catch {
     return "live";
   }
 }
 
 export function Part3({ id, priceCap }: { id: string; priceCap: number }) {
-  const { data, error } = useSWR(["analysis", id], () => api.analysis(id), { refreshInterval: 5000 });
-  const [source, setSource] = useState<Source>(loadSource);
+  const { data, error } = useSWR(["analysis", id], () => api.analysis(id), livePoll(5000));
+  const [source, setSource] = useState<Source>(() => loadSource(id));
+  const visible = useView() === "analysis"; // kept mounted while hidden: the clicker is not ours then
   const example = useMemo(() => runAnalysis(buildPanel(backupGame as PanelInput)), []);
   const live = useMemo(() => {
     if (!data?.available || !data.rounds || !data.offers) return null;
@@ -95,7 +99,7 @@ export function Part3({ id, priceCap }: { id: string; priceCap: number }) {
   const chooseSource = (next: Source) => {
     setSource(next);
     try {
-      localStorage.setItem(SOURCE_KEY, next);
+      localStorage.setItem(SOURCE_KEY + id, next);
     } catch {}
     setStep(0);
     setRun((r) => r + 1);
@@ -104,7 +108,7 @@ export function Part3({ id, priceCap }: { id: string; priceCap: number }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!visible || e.metaKey || e.ctrlKey || e.altKey) return;
       if (NEXT.has(e.key)) {
         e.preventDefault();
         if (!done) setDone(true);
@@ -137,7 +141,8 @@ export function Part3({ id, priceCap }: { id: string; priceCap: number }) {
 
   if (!isExample) {
     const fallback = "Press E (or use the switch) to show the example game instead.";
-    if (error) return <Message title="Could not load the data" text={error.message} hint={fallback} action={switcher} />;
+    // A failed refresh keeps the analysis on screen; only a first load that fails shows this.
+    if (error && !data) return <Message title="Could not load the data" text={error.message} hint={fallback} action={switcher} />;
     if (!data) return null;
     if (!data.available)
       return (
@@ -753,7 +758,14 @@ function ShuffleStep({ a, priceCap, run, done, onDone }: StepProps) {
               p = (1 + {totalBeats}) / ({B} + 1) = {a.permutationP.toFixed(3)}
             </div>
             <div className="mt-2 text-lg opacity-90">
-              Only {totalBeats} of {B} shuffled worlds jump as much as the real game. The real order is special: something changed.
+              {/* The words follow the p-value, like the change-point steps (5% / 10% / neither). */}
+              {totalBeats === 0 ? `None of the ${B} shuffled worlds jumps` : `${a.permutationP <= 0.05 ? "Only " : ""}${totalBeats} of ${B} shuffled worlds jump`}{" "}
+              as much as the real game.{" "}
+              {a.permutationP <= 0.05
+                ? "The real order is special: something changed."
+                : a.permutationP <= 0.1
+                  ? "Some evidence that something changed, significant at the 10% level but not at the usual 5%."
+                  : "A jump this big happens easily by chance: no clear sign that something changed."}
             </div>
           </div>
         )}
@@ -891,7 +903,13 @@ function ScatterStep({ a, priceCap, run, done, onDone }: StepProps) {
               Average profit per team and round: <b className="tabular">{eur(avg("competition", a.panel.profit))}</b> →{" "}
               <b className="tabular text-orange">{eur(avg("collusion", a.panel.profit))}</b>
             </div>
-            <div className="mt-2 text-base opacity-80">Part 1 → Part 2. Higher prices for everybody: that is what consumers pay.</div>
+            <div className="mt-2 text-base opacity-80">
+              {avg("collusion", a.panel.bid) - avg("competition", a.panel.bid) > 1
+                ? "Part 1 → Part 2. Higher prices for everybody: that is what consumers pay."
+                : avg("collusion", a.panel.bid) - avg("competition", a.panel.bid) < -1
+                  ? "Part 1 → Part 2. Prices went down: the agreements did not hold."
+                  : "Part 1 → Part 2. Prices hardly changed this time."}
+            </div>
           </div>
         )}
       </div>

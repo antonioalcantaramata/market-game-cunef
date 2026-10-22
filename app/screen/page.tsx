@@ -5,13 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useSyncExternalStore } from "react";
 import useSWR from "swr";
 import { MeritOrderChart, PriceHistoryChart } from "@/components/charts";
-import { eur, formatClock, mw, mwRange, useCountdown } from "@/components/client";
+import { eur, formatClock, mw, mwRange, useCountdown, useHeight, useOnline } from "@/components/client";
 import { QR, useAppUrl } from "@/components/qr";
 import { Presenter } from "@/components/presenter";
 import { Part3 } from "@/components/part3";
 import { SummaryBody } from "@/components/summary";
 import { Logo, PhaseBadge } from "@/components/ui";
 import { api } from "@/lib/api";
+import { live } from "@/lib/poll";
 import type { RoundView, ScreenSession, SessionView } from "@/lib/types";
 
 // Projector view. It follows the game by itself: lobby → open round → results.
@@ -30,7 +31,7 @@ function ScreenOrPicker() {
 }
 
 function SessionPicker() {
-  const { data, error } = useSWR<ScreenSession[]>("screen-sessions", api.screenSessions, { refreshInterval: 5000 });
+  const { data, error } = useSWR<ScreenSession[]>("screen-sessions", api.screenSessions, live(5000));
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-6 py-10">
       <header className="flex items-center gap-5">
@@ -40,7 +41,7 @@ function SessionPicker() {
           <p className="text-ink-2">Choose the session to show. This list updates by itself.</p>
         </div>
       </header>
-      {error && <p className="text-maroon">{error.message}</p>}
+      {error && !data && <p className="text-maroon">{error.message}</p>}
       {data?.length === 0 && (
         <p className="card p-6 text-center text-ink-2">No sessions yet. Create one in the instructor panel.</p>
       )}
@@ -70,9 +71,27 @@ function SessionPicker() {
 /** The projector: live game and slides on one full screen (see components/presenter.tsx). */
 function Screen({ id }: { id: string }) {
   return (
-    <Presenter summary={<SummaryScreen id={id} />} analysis={<Part3Screen id={id} />}>
-      <GameScreen id={id} />
-    </Presenter>
+    <>
+      <Presenter session={id} summary={<SummaryScreen id={id} />} analysis={<Part3Screen id={id} />}>
+        <GameScreen id={id} />
+      </Presenter>
+      <ConnectionNote id={id} />
+    </>
+  );
+}
+
+/**
+ * A failed refresh keeps the last picture on screen (it comes back by itself);
+ * only this small note in a corner tells the instructor the data may be stale.
+ */
+function ConnectionNote({ id }: { id: string }) {
+  const { error, data } = useSWR<SessionView>(["screen", id], () => api.screen(id), live(2000));
+  const online = useOnline();
+  if (!data || (!error && online)) return null;
+  return (
+    <div className="pointer-events-none fixed bottom-3 left-3 z-50 rounded-full bg-ink/70 px-3 py-1 text-xs font-semibold text-white">
+      Reconnecting…
+    </div>
   );
 }
 
@@ -93,7 +112,7 @@ function Header({ badge }: { badge?: React.ReactNode }) {
 
 /** Summary of Part 1, then Part 1 vs Part 2 (components/summary.tsx). Shares the game's data. */
 function SummaryScreen({ id }: { id: string }) {
-  const { data } = useSWR<SessionView>(["screen", id], () => api.screen(id), { refreshInterval: 2000 });
+  const { data } = useSWR<SessionView>(["screen", id], () => api.screen(id), live(2000));
   if (!data) return null;
   return (
     <Stage>
@@ -105,7 +124,7 @@ function SummaryScreen({ id }: { id: string }) {
 
 /** Statistical analysis: Elena's collusion detection, step by step (components/part3.tsx). */
 function Part3Screen({ id }: { id: string }) {
-  const { data } = useSWR<SessionView>(["screen", id], () => api.screen(id), { refreshInterval: 2000 });
+  const { data } = useSWR<SessionView>(["screen", id], () => api.screen(id), live(2000));
   if (!data) return null;
   return (
     <Stage>
@@ -116,11 +135,9 @@ function Part3Screen({ id }: { id: string }) {
 }
 
 function GameScreen({ id }: { id: string }) {
-  const { data, error } = useSWR<SessionView>(["screen", id], () => api.screen(id), {
-    refreshInterval: 2000,
-  });
+  const { data, error } = useSWR<SessionView>(["screen", id], () => api.screen(id), live(2000));
 
-  if (error) return <p className="p-10 text-center text-2xl text-maroon">{error.message}</p>;
+  if (error && !data) return <p className="p-10 text-center text-2xl text-maroon">{error.message}</p>;
   if (!data) return null;
 
   const open = data.rounds.find((r) => r.status === "open");
@@ -180,18 +197,20 @@ function TeamTiles({
   done: (id: number) => boolean;
   doneLabel?: string;
 }) {
+  // Smaller tiles with many teams, so the round still fits on one screen.
+  const compact = groups.length > 12;
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+    <div className={`grid gap-3 ${compact ? "grid-cols-[repeat(auto-fill,minmax(150px,1fr))]" : "grid-cols-[repeat(auto-fill,minmax(180px,1fr))]"}`}>
       {groups.map((g) => {
         const ok = done(g.id);
         return (
           <div
             key={g.id}
-            className={`flex items-center gap-3 rounded-xl border-2 p-3 transition-colors ${ok ? "border-teal bg-white" : "border-dashed border-sand bg-white/50"}`}
+            className={`flex items-center rounded-xl border-2 transition-colors ${compact ? "gap-2 p-2" : "gap-3 p-3"} ${ok ? "border-teal bg-white" : "border-dashed border-sand bg-white/50"}`}
           >
-            <span className="text-3xl">{g.icon}</span>
+            <span className={compact ? "text-2xl" : "text-3xl"}>{g.icon}</span>
             <div className="min-w-0">
-              <div className="truncate text-lg font-bold">{g.displayName}</div>
+              <div className={`truncate font-bold ${compact ? "text-base" : "text-lg"}`}>{g.displayName}</div>
               <div className={`text-sm ${ok ? "text-teal" : "text-ink-3"}`}>{ok ? doneLabel : "waiting…"}</div>
             </div>
           </div>
@@ -251,7 +270,7 @@ function OpenRound({ session, round }: { session: SessionView; round: RoundView 
   const left = useCountdown(round.deadline, session.serverTime);
   const hasHistory = session.rounds.some((r) => r.status === "closed");
   return (
-    <div className="flex flex-1 flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <div className="grid grid-cols-3 items-center gap-6">
         <div>
           <div className="text-2xl text-ink-2">Round {round.number}</div>
@@ -285,14 +304,20 @@ function OpenRound({ session, round }: { session: SessionView; round: RoundView 
         <TeamTiles groups={session.groups.filter((g) => g.playing)} done={(gid) => round.submittedGroupIds.includes(gid)} />
         <LateJoin sessionId={session.id} />
       </div>
-      {hasHistory && (
-        <div className="card mt-auto p-4">
-          <PriceHistoryChart
-            rounds={session.rounds}
-            priceCap={session.priceCap}
-            height={220}
-            large
-          />
+      {hasHistory && <HistoryInSpaceLeft session={session} />}
+    </div>
+  );
+}
+
+/** The price history at the bottom, shrunk to the space left (many teams) or left out if there is none. */
+function HistoryInSpaceLeft({ session }: { session: SessionView }) {
+  const [ref, space] = useHeight<HTMLDivElement>();
+  const height = Math.min(220, space - 32); // 32 px: the card's padding
+  return (
+    <div ref={ref} className="flex min-h-0 flex-1 flex-col justify-end">
+      {height >= 110 && (
+        <div className="card p-4">
+          <PriceHistoryChart rounds={session.rounds} priceCap={session.priceCap} height={height} large />
         </div>
       )}
     </div>

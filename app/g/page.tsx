@@ -5,16 +5,17 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import useSWR from "swr";
 import { MeritOrderChart } from "@/components/charts";
-import { eur, formatClock, mw, mwRange, useCountdown } from "@/components/client";
+import { eur, formatClock, mw, mwRange, useCountdown, useOnline } from "@/components/client";
 import { Logo, PhaseBadge, Stat } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
+import { live } from "@/lib/poll";
 import { rememberTeam } from "@/lib/team-memory";
 import { clearMarket } from "@/lib/game";
 import type { GroupState } from "@/lib/types";
 
 export default function Page() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<p className="py-20 text-center text-ink-3">Loading… If nothing appears, reload the page.</p>}>
       <GroupPage />
     </Suspense>
   );
@@ -22,11 +23,10 @@ export default function Page() {
 
 function GroupPage() {
   const code = (useSearchParams().get("code") ?? "").toUpperCase();
-  const { data, error, mutate } = useSWR<GroupState>(code ? ["group", code] : null, () => api.groupState(code), {
-    refreshInterval: 2000,
-  });
+  const { data, error, mutate } = useSWR<GroupState>(code ? ["group", code] : null, () => api.groupState(code), live(2000));
   // Remember this phone's team, so the projector QR brings it back here.
   const sessionId = data?.session.id;
+  const online = useOnline();
   useEffect(() => {
     if (sessionId) rememberTeam(sessionId, code);
   }, [sessionId, code]);
@@ -35,8 +35,10 @@ function GroupPage() {
     return (
       <Shell>
         <div className="card p-6 text-center">
-          <p className="text-lg font-semibold">We could not find team code “{code}”.</p>
-          <Link href="/" className="btn btn-primary mt-4">Try again</Link>
+          <p className="text-lg font-semibold">
+            {code ? `We could not find team code “${code}”.` : "Scan the QR code on the projector to join the game."}
+          </p>
+          <Link href="/" className="btn btn-primary mt-4">Type a team code</Link>
         </div>
       </Shell>
     );
@@ -49,6 +51,11 @@ function GroupPage() {
 
   return (
     <Shell sessionName={data.session.name}>
+      {(error || !online) && (
+        <p className="rounded-lg bg-orange/15 px-3 py-2 text-sm font-semibold text-ink" role="status">
+          Connection lost. Reconnecting… Keep this page open.
+        </p>
+      )}
       <PlantCard state={{ ...data, group: { ...data.group, code } }} onRename={async (name) => mutate(await api.rename(code, name), false)} />
       <CurrentRound state={data} onSubmit={async (bid) => mutate(await api.bid(code, bid), false)} />
       <History state={data} />
@@ -70,8 +77,12 @@ function Shell({ children, sessionName }: { children: React.ReactNode; sessionNa
 
 function PlantCard({ state, onRename }: { state: GroupState; onRename: (name: string) => Promise<unknown> }) {
   const g = state.group;
-  const [editing, setEditing] = useState(!g.name);
+  // Open while the team has no name; closes when it gets one (from this phone or a teammate's).
+  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(g.name ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const showForm = editing || !g.name;
 
   return (
     <section className="card overflow-hidden">
@@ -80,8 +91,14 @@ function PlantCard({ state, onRename }: { state: GroupState; onRename: (name: st
         <div className="min-w-0 flex-1">
           <div className="text-sm opacity-80">Your power plant</div>
           <div className="text-2xl font-bold">{g.technology}</div>
-          {!editing && (
-            <button className="mt-0.5 text-sm underline decoration-white/40 underline-offset-2" onClick={() => setEditing(true)}>
+          {!showForm && (
+            <button
+              className="mt-0.5 text-sm underline decoration-white/40 underline-offset-2"
+              onClick={() => {
+                setName(g.name ?? "");
+                setEditing(true);
+              }}
+            >
               {g.displayName} ✎
             </button>
           )}
@@ -95,18 +112,34 @@ function PlantCard({ state, onRename }: { state: GroupState; onRename: (name: st
         Teammates can follow the game on their phones: scan the projector QR, tap <b>“My group already has a team”</b> and
         type <b className="font-mono">{g.code}</b>.
       </p>
-      {editing && (
+      {showForm && (
         <form
-          className="flex gap-2 border-b border-line p-4"
+          className="flex flex-wrap gap-2 border-b border-line p-4"
           onSubmit={async (e) => {
             e.preventDefault();
-            await onRename(name);
-            setEditing(false);
+            setBusy(true);
+            setErr("");
+            try {
+              await onRename(name);
+              setEditing(false);
+            } catch (e) {
+              setErr(e instanceof Error ? e.message : "Could not save the name");
+            } finally {
+              setBusy(false);
+            }
           }}
         >
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Choose a team name" maxLength={24} autoFocus />
-          <button className="btn btn-primary">Save</button>
+          <input
+            className="input min-w-0 flex-1"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Choose a team name"
+            maxLength={24}
+            autoComplete="off"
+          />
+          <button className="btn btn-primary" disabled={busy || name.trim() === ""}>Save</button>
           {g.name && <button type="button" className="btn btn-ghost" onClick={() => setEditing(false)}>Cancel</button>}
+          {err && <p className="w-full text-sm text-maroon">{err}</p>}
         </form>
       )}
       <div className="grid grid-cols-2 gap-4 p-4">
@@ -156,10 +189,15 @@ function OfferForm({
   const left = useCountdown(r.deadline, state.serverTime);
   const [price, setPrice] = useState(r.myBid ? String(r.myBid.price) : "");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [error, setError] = useState("");
 
-  const p = Number(price);
-  const valid = price !== "" && p >= 0 && p <= state.session.priceCap;
+  // Phones set to Spanish type a decimal comma; offers keep at most two decimals.
+  const p = Math.round(Number(price.trim().replace(",", ".")) * 100) / 100;
+  const typed = price.trim() !== "";
+  const valid = typed && Number.isFinite(p) && p >= 0 && p <= state.session.priceCap;
+  // What the server has (it may also come from a teammate's phone), not what this phone last tried.
+  const saved = r.myBid?.price;
+  const notSent = valid && saved != null && p !== saved;
   const timeUp = left === 0;
   const fmt1 = (v: number) => v.toLocaleString("en-GB", { maximumFractionDigits: 1 });
   const plantsNeeded =
@@ -207,13 +245,13 @@ function OfferForm({
         className="mt-4 flex flex-col gap-4"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (!valid) return;
           setBusy(true);
-          setMessage(null);
+          setError("");
           try {
             await onSubmit({ roundId: r.id, price: p });
-            setMessage({ ok: true, text: "Offer received. You can change it until the round closes." });
           } catch (err) {
-            setMessage({ ok: false, text: err instanceof Error ? err.message : "Could not send your offer" });
+            setError(err instanceof Error ? err.message : "Could not send your offer");
           } finally {
             setBusy(false);
           }
@@ -223,30 +261,38 @@ function OfferForm({
           <span className="font-semibold">Your price (€/MWh)</span>
           <input
             className="input tabular text-2xl font-bold"
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={0}
-            max={state.session.priceCap}
-            step="any"
+            autoComplete="off"
+            enterKeyHint="send"
             value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => {
+              setPrice(e.target.value);
+              setError("");
+            }}
             placeholder={`0 – ${state.session.priceCap}`}
           />
-          {price !== "" && (
+          {typed && !valid && (
+            <span className="text-sm font-semibold text-maroon">Type a price between €0 and {eur(state.session.priceCap)}.</span>
+          )}
+          {valid && (
             <span className="text-sm text-ink-2">
-              If your offer is bought, you earn <b className="text-ink">{eur(p * g.capacity)}</b> this hour. Ask too much
+              If your offer is bought, you earn <b className="text-ink">{euros(p * g.capacity)}</b> this hour. Ask too much
               and someone cheaper may take your place.
             </span>
           )}
         </label>
         <button className="btn btn-accent py-3 text-lg" disabled={!valid || busy || timeUp}>
-          {timeUp ? "Time is up" : r.myBid ? "Update my offer" : "Send my offer"}
+          {timeUp ? "Time is up" : busy ? "Sending…" : saved != null ? "Update my offer" : "Send my offer"}
         </button>
-        {message && <p className={`text-sm ${message.ok ? "text-teal" : "text-maroon"}`}>{message.text}</p>}
-        {r.myBid && !message && (
-          <p className="text-sm text-teal">
-            ✓ Offer saved: {eur(r.myBid.price)}/MWh.
+        {error && saved !== p && <p className="text-sm text-maroon">{error}</p>}
+        {saved != null && (
+          <p className="text-sm font-semibold text-teal">
+            ✓ Offer received: {euros(saved)}/MWh. You can change it until the round closes.
           </p>
+        )}
+        {notSent && !timeUp && (
+          <p className="text-sm text-orange">Not sent yet: tap “Update my offer” to change it to {euros(p)}.</p>
         )}
       </form>
     </section>
@@ -278,7 +324,7 @@ function RoundResult({ state }: { state: GroupState }) {
         <span className="text-sm text-ink-3">Next round soon…</span>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-3 rounded-lg bg-sand-light p-3">
-        <Stat label="Your price" value={mine ? eur(mine.price) : "—"} sub="per MWh" />
+        <Stat label="Your price" value={mine ? euros(mine.price) : "—"} sub="per MWh" />
         <Stat label="You sold" value={mw(sold)} sub={soldNote} />
         <Stat label={`You earned${r.phase === "practice" ? " (practice)" : ""}`} value={eur(profit)} />
       </div>
@@ -304,7 +350,7 @@ function RoundResult({ state }: { state: GroupState }) {
       )}
       <p className="mt-3 text-sm text-ink-2">
         The cheapest offers are bought until demand is covered, and each team that sells is paid its own price. The most
-        expensive offer bought this hour was <b className="text-ink">{eur(r.marginalPrice ?? 0)}</b>.
+        expensive offer bought this hour was <b className="text-ink">{r.marginalPrice != null ? euros(r.marginalPrice) : "—"}</b>.
       </p>
     </section>
   );
@@ -408,8 +454,8 @@ function History({ state }: { state: GroupState }) {
               <td className="py-1.5">
                 R{h.number} <span className="text-ink-3">{h.phase === "practice" ? "(practice)" : h.phase === "collusion" ? "🤝" : ""}</span>
               </td>
-              <td className="py-1.5 text-right">{h.myPrice != null ? eur(h.myPrice) : "—"}</td>
-              <td className="py-1.5 text-right">{eur(h.marginalPrice)}</td>
+              <td className="py-1.5 text-right">{h.myPrice != null ? euros(h.myPrice) : "—"}</td>
+              <td className="py-1.5 text-right">{h.marginalPrice > 0 ? euros(h.marginalPrice) : "—"}</td>
               <td className="py-1.5 text-right">{mw(h.dispatched)}</td>
               <td className="py-1.5 text-right font-semibold">{eur(h.profit)}</td>
             </tr>

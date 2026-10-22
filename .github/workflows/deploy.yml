@@ -1,5 +1,5 @@
-# On every push to main: updates the Supabase database with supabase/schema.sql,
-# then builds the static site and publishes it on GitHub Pages.
+# On every push to main: runs the tests and builds the static site, updates the
+# Supabase database with supabase/schema.sql, then publishes the site on GitHub Pages.
 # Needs two repository variables (Settings → Secrets and variables → Actions → Variables):
 #   SUPABASE_URL       https://<project>.supabase.co
 #   SUPABASE_ANON_KEY  the project's publishable (anon) key — public by design
@@ -22,24 +22,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  database:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # The schema is idempotent and runs as one transaction: if anything fails,
-      # the database is left as it was and the site is not published.
-      - name: Apply supabase/schema.sql
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: |
-          if [ -z "$SUPABASE_DB_URL" ]; then
-            echo "::warning::SUPABASE_DB_URL is not set: run supabase/schema.sql by hand in the SQL Editor."
-            exit 0
-          fi
-          psql "$SUPABASE_DB_URL" --single-transaction -v ON_ERROR_STOP=1 -q -f supabase/schema.sql
-
+  # Tests and build first: the database is only touched if they pass.
   build:
-    needs: database
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,8 +45,26 @@ jobs:
         with:
           path: out
 
-  deploy:
+  database:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The schema is idempotent and runs as one transaction: if anything fails,
+      # the database is left as it was and the site is not published.
+      # It briefly locks the game tables: avoid pushing while a game is being played.
+      - name: Apply supabase/schema.sql
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::warning::SUPABASE_DB_URL is not set: run supabase/schema.sql by hand in the SQL Editor."
+            exit 0
+          fi
+          psql "$SUPABASE_DB_URL" --single-transaction -v ON_ERROR_STOP=1 -q -f supabase/schema.sql
+
+  deploy:
+    needs: [build, database]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

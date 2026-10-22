@@ -37,7 +37,7 @@ export interface RoundView {
   demandLow: number; // forecast range shown to teams (equal to demandMw when exact)
   demandHigh: number;
   demandKnown: boolean; // false while the real value of an uncertain round is hidden
-  demandCapped: boolean; // pending preview hit the cap (playing capacity minus the largest plant)
+  demandAdjusted: boolean; // pending preview moved into the window where 50-60% of the teams sell
   openedAt: string | null;
   deadline: string | null;
   closedAt: string | null;

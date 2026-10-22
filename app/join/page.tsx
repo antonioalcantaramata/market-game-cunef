@@ -12,7 +12,7 @@ import { rememberedTeam, rememberTeam } from "@/lib/team-memory";
 
 export default function Page() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<p className="py-20 text-center text-ink-3">Loading… If nothing appears, reload the page.</p>}>
       <Join />
     </Suspense>
   );
@@ -31,14 +31,15 @@ function Join() {
     router.replace(`/g?code=${teamCode}`);
   };
 
-  // This phone already has a team here: back to it (the server confirms the code).
+  // This phone already has a team here: back to it, once the server confirms the
+  // code is still in this session. Only looks it up: a team is created only by the button.
   useEffect(() => {
     const known = rememberedTeam(sessionId);
     if (!sessionId || !known) return;
     api
-      .joinSession(sessionId, known)
-      .then((r) => {
-        if (!r.new) goTo(r.code);
+      .groupState(known)
+      .then((s) => {
+        if (s.session.id === sessionId) goTo(known);
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,6 +96,8 @@ function Join() {
           placeholder="ABC12"
           autoComplete="off"
           autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
           maxLength={8}
         />
         <button className="btn btn-primary" disabled={clean.length < 4}>

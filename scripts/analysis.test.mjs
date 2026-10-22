@@ -62,6 +62,15 @@ test("the earlier 4 + 4 game gives exactly R's results, profits only at 10%", ()
   assert.deepEqual(a.profitsCandidate, { round: R.profits.consideredRound, p: R.profits.pValues[0] });
 });
 
+test("a round where nobody sent an offer is left out, as in R, instead of emptying the analysis", () => {
+  const input = structuredClone(backup.input);
+  input.offers = input.offers.filter((o) => o.round !== 5); // round 5 closed with no offers
+  const panel = buildPanel(input);
+  assert.equal(panel.teams.length, 10);
+  assert.deepEqual(panel.rounds.map((r) => r.number), [2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+  assert.equal(runAnalysis(panel).changeRound, 9);
+});
+
 test("the analysis never breaks on unusual games (few rounds, ties, flat prices, one team)", () => {
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);

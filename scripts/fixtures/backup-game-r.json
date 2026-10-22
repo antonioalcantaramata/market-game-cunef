@@ -22,10 +22,10 @@
    ],
    "pValues": [
     0.003,
-    0.316
+    0.067
    ],
    "changeRound": 9,
-   "consideredLast": 13
+   "consideredLast": 12
   },
   "permutation": {
    "tObs": 114.67142857142858,

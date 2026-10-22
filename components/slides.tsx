@@ -81,7 +81,8 @@ export function usePdf(data: Blob | undefined) {
     let cancelled = false;
     let task: PDFDocumentLoadingTask | undefined;
     (async () => {
-      const pdfjs = await import("pdfjs-dist");
+      // The "legacy" build also runs on older browsers (the projector computer is not ours).
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
       pdfjs.GlobalWorkerOptions.workerSrc = `${BASE_PATH}/pdf.worker.min.mjs`;
       task = pdfjs.getDocument({ data: new Uint8Array(await data.arrayBuffer()) });
       const doc = await task.promise;
@@ -107,6 +108,7 @@ export function SlideCanvas({ doc, page }: { doc: PDFDocumentProxy; page: number
   const canvas = useRef<HTMLCanvasElement>(null);
   const cache = useRef(new Map<string, Promise<HTMLCanvasElement>>());
   const [size, setSize] = useState({ w: 0, h: 0 });
+  const [failed, setFailed] = useState<{ key: string; message: string } | null>(null);
 
   useEffect(() => {
     const el = wrap.current;
@@ -141,17 +143,24 @@ export function SlideCanvas({ doc, page }: { doc: PDFDocumentProxy; page: number
     };
 
     let alive = true;
-    draw(page).then((c) => {
-      const out = canvas.current;
-      if (!alive || !out) return;
-      out.width = c.width;
-      out.height = c.height;
-      out.style.width = `${c.width / dpr}px`;
-      out.style.height = `${c.height / dpr}px`;
-      out.getContext("2d")!.drawImage(c, 0, 0);
-    });
-    if (page < doc.numPages) draw(page + 1);
-    if (page > 1) draw(page - 1);
+    const key = `${page}@${size.w}x${size.h}`;
+    draw(page)
+      .then((c) => {
+        const out = canvas.current;
+        if (!alive || !out) return;
+        out.width = c.width;
+        out.height = c.height;
+        out.style.width = `${c.width / dpr}px`;
+        out.style.height = `${c.height / dpr}px`;
+        out.getContext("2d")!.drawImage(c, 0, 0);
+      })
+      .catch((err) => {
+        cache.current.delete(key); // try again next time this slide is shown
+        if (alive) setFailed({ key, message: err instanceof Error ? err.message : String(err) });
+      });
+    const ahead = (n: number) => draw(n).catch(() => cache.current.delete(`${n}@${size.w}x${size.h}`));
+    if (page < doc.numPages) ahead(page + 1);
+    if (page > 1) ahead(page - 1);
     return () => {
       alive = false;
     };
@@ -160,6 +169,11 @@ export function SlideCanvas({ doc, page }: { doc: PDFDocumentProxy; page: number
   return (
     <div ref={wrap} className="absolute inset-0 flex items-center justify-center bg-black">
       <canvas ref={canvas} />
+      {failed?.key === `${page}@${size.w}x${size.h}` && (
+        <p className="absolute max-w-xl text-center text-lg text-orange">
+          Could not draw slide {page}: {failed.message}. Press G to go back to the game.
+        </p>
+      )}
     </div>
   );
 }

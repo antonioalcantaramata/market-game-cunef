@@ -28,9 +28,16 @@ export interface Panel {
   trueBreakRound: number | null; // first round of Part 2
 }
 
-/** Same cleaning as the R script: drop practice, keep teams that bid in every round. */
+/**
+ * Same cleaning as the R script: drop practice, keep teams that bid in every
+ * round. A round where nobody sent an offer is not in R's table at all (tapply
+ * only sees rounds with offers), so it is left out here too.
+ */
 export function buildPanel(input: PanelInput): Panel {
-  const rounds = input.rounds.filter((r) => r.phase !== "practice").sort((a, b) => a.number - b.number);
+  const played = new Set(input.offers.map((o) => o.round));
+  const rounds = input.rounds
+    .filter((r) => r.phase !== "practice" && played.has(r.number))
+    .sort((a, b) => a.number - b.number);
   const slots = [...new Set(input.offers.map((o) => o.slot))].sort((a, b) => a - b);
   const cell = new Map(input.offers.map((o) => [`${o.round}:${o.slot}`, o]));
   const teams = slots.filter((s) => rounds.every((r) => cell.has(`${r.number}:${s}`)));

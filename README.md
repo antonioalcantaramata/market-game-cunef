@@ -70,6 +70,49 @@ Cada push a `main` vuelve a pasar los tests y publica la web.
   SQL Editor: es idempotente y conserva los datos. Si defines el secreto `SUPABASE_DB_URL` en GitHub
   (ver [docs/supabase-setup.md](docs/supabase-setup.md), paso 6b), se aplica solo en cada push a `main`.
 
+## Lista de comprobación para el día
+
+**La víspera o esa misma mañana**
+- Prueba de 2 minutos: en `/admin/` crea una sesión «Prueba», ábrela en el proyector, escanea el QR con
+  tu móvil, envía una oferta en la ronda de práctica y ciérrala. Después bórrala con *Delete*.
+- **Crea la sesión del día** (una nueva: las antiguas tienen otra demanda). El proyector solo lista las
+  sesiones de los últimos 14 días.
+- En el ordenador del proyector, carga el PDF de las diapositivas (*Load PDF*): se queda guardado en ese
+  navegador. Comprueba que el mando de presentaciones pasa las diapositivas y que **B** cambia al juego.
+  Usa la pantalla completa del navegador (**F11**) y no pulses el botón de «iniciar presentación» del
+  mando: suele enviar F5, que recarga la página (vuelve a la misma vista, pero el análisis empieza de nuevo).
+- La vista, la diapositiva y la fuente del análisis (*This game* / *Example game*) se recuerdan por sesión:
+  lo que hagas en la sesión «Prueba» no cambia la sesión del día, que empieza en el juego y en la
+  diapositiva 1.
+
+**Al empezar**
+- Ordenador del proyector y portátil del panel conectados a internet (mejor por cable o a una red
+  estable). Los alumnos pueden usar la Wi-Fi o sus datos móviles.
+- Proyector: *Projector screen* → la sesión → pantalla completa. Portátil: el panel de la sesión.
+- Espera a que todos los grupos aparezcan en el proyector antes de abrir la ronda de práctica, y
+  **comprueba que hay tantos equipos como grupos**. Si sobra alguno (dos móviles del mismo grupo pulsaron
+  *Get a team*), bórralo con ✕ en el panel: el resto de ese grupo entra con el código de su equipo.
+  Un equipo de más cuenta en la demanda y cambia cuántos venden.
+
+**Durante el juego**
+- Las rondas no se cierran solas: al acabar el tiempo ya nadie puede enviar ofertas, pero eres tú quien
+  pulsa *Close & clear market*.
+- Antes de cerrar cada ronda, mira las fichas del proyector: si algún equipo sigue en *waiting…*, usa
+  *+30 s*. Un equipo que no envía oferta en una ronda queda fuera del análisis estadístico de Elena.
+- Si la Wi-Fi falla un momento, las pantallas siguen mostrando lo último y se ponen al día solas en
+  cuanto vuelve la conexión (el proyector muestra un pequeño *Reconnecting…* abajo a la izquierda).
+- **No hagas push a GitHub durante el taller:** cada push actualiza la base de datos y congela el juego
+  unos segundos.
+- Si un grupo se queda sin móvil, sus compañeros entran escaneando el QR y escribiendo su código.
+- Si un equipo pone un nombre ofensivo, cámbialo desde el panel (columna *Team*).
+- Si un equipo se va, pulsa *pause* en el panel para que deje de contar en la demanda.
+- Si los datos del día salen raros en el análisis, pulsa **E** para enseñar la partida de ejemplo.
+
+**Al terminar (opcional)**
+- El análisis estadístico lee los datos directamente de la base de datos: no hace falta descargar nada.
+  Si quieres guardar una copia (para enseñarla después o para que Elena la use en R), descarga los CSV
+  con *Download data*; los datos siguen en Supabase y se pueden descargar más tarde.
+
 ## El día del taller
 
 1. Entra en `/admin/` y crea la sesión (nombre, precio máximo, segundos por ronda). Empieza sin equipos.
@@ -116,7 +159,8 @@ Cada push a `main` vuelve a pasar los tests y publica la web.
      una diapositiva.
 4. Abre las rondas una a una desde el panel. Por defecto: 1 de práctica, 7 de competencia y
    7 con acuerdos (las mismas 7 horas del día y la misma demanda, para comparar). La demanda es un %
-   de la capacidad total y se puede editar antes de abrir cada ronda. Son 15 rondas de 45 segundos
+   de la capacidad total (del 43 % de madrugada al 60 % a las 20:00) y se puede editar antes de abrir
+   cada ronda; en cualquier caso se ajusta para que vendan entre el 50 % y el 60 % de los equipos. Son 15 rondas de 45 segundos
    por defecto (unos 11 minutos pujando, más el tiempo de comentar cada resultado). El tiempo se cambia al
    crear la sesión o en *Settings*, y con *+30 s* puedes alargar una ronda concreta.
    **Demanda incierta (opcional):** en la columna *Demand · ±🎲* puedes poner una incertidumbre por ronda
@@ -141,10 +185,13 @@ Cada push a `main` vuelve a pasar los tests y publica la web.
 - Empates en el precio marginal: la demanda que queda se reparte a partes iguales (a prorrata).
   Así, si todos pactan el precio máximo, todos venden algo; y quien rebaja aunque sea 1 € vende su
   planta entera (la tentación del cártel).
-- **Tope de demanda:** la demanda (y el máximo de la previsión, si hay incertidumbre) nunca supera la
-  capacidad de los equipos que juegan menos la central más grande. Siempre sobra al menos una central
-  entera: con precios distintos, el equipo más caro no vende nada. Si varios empatan arriba, se reparten
-  lo que queda. El panel marca *capped* en las rondas donde se aplica.
+- **Vende entre el 50 % y el 60 % de los equipos:** al abrir cada ronda, la demanda (y la previsión,
+  si hay incertidumbre) se ajusta para que haga falta entre el 50 % y el 60 % de las centrales de los
+  equipos que juegan. Por ejemplo, con 10 equipos la demanda queda entre 425 y 600 MW: venden 5 o 6.
+  Con 3 equipos no hay un número exacto en ese rango y venden 2 de 3. Nunca venden todos: con precios
+  distintos, los más caros no venden nada. Si varios empatan en el precio marginal se reparten lo que
+  queda, así que entonces pueden vender más (por ejemplo, si todos piden el precio máximo, venden todos
+  un poco). El panel marca *adjusted* en las rondas donde la demanda se ha movido para cumplirlo.
 - **Parte 1 anónima:** tras cada ronda de práctica o de la parte 1, los alumnos y el proyector ven todas las
   ofertas, pero las de los demás equipos aparecen como «Company A, B, C…», con letras que se barajan en
   cada ronda (el anonimato viene de la base de datos, no solo de la pantalla). Tampoco se publican

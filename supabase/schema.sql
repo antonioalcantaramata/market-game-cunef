@@ -196,15 +196,37 @@ language sql stable as $$
   select coalesce(sum(capacity), 0) from _playing_groups(p_session)
 $$;
 
--- Most demand a round may have: the playing capacity minus the largest plant,
--- so at least one plant's worth is always left unsold and asking too much has
--- a real risk (in Part 1 the most expensive team sells nothing). With a single
--- team there is nothing to leave out.
-create or replace function _demand_cap(p_session text) returns double precision
-language sql stable as $$
-  select case when count(*) >= 2 then sum(capacity) - max(capacity) else coalesce(sum(capacity), 0) end
-  from _playing_groups(p_session)
-$$;
+-- Range the demand of a round is kept in, so that 50-60% of the teams playing
+-- can sell (when their prices differ; teams tied at the margin share it). With
+-- N teams, between ceil(0.5 N) and floor(0.6 N) plants are needed; when no whole
+-- number fits (3 teams), the one closest to 55%. Never every plant, so asking
+-- too much has a real risk. At the bottom of the range the last plant needed
+-- sells at least a quarter of its capacity. With one team, nothing is left out.
+drop function if exists _demand_cap(text);
+create or replace function _demand_window(p_session text, out lo double precision, out hi double precision)
+language plpgsql stable as $$
+declare
+  n integer;
+  v_total double precision;
+  v_plant double precision;
+  k_lo integer;
+  k_hi integer;
+begin
+  select count(*), coalesce(sum(capacity), 0) into n, v_total from _playing_groups(p_session);
+  if n < 2 then
+    lo := 0; hi := v_total; return;
+  end if;
+  v_plant := v_total / n; -- every plant is the same size
+  k_lo := ceil(0.5 * n);
+  k_hi := floor(0.6 * n);
+  if k_lo > k_hi then
+    k_lo := round(0.55 * n); k_hi := k_lo;
+  end if;
+  k_hi := least(k_hi, n - 1);
+  k_lo := least(k_lo, k_hi);
+  lo := ceil((k_lo - 0.75) * v_plant);
+  hi := floor(k_hi * v_plant);
+end $$;
 
 drop function if exists _insert_group(text, integer, text);
 create or replace function _insert_group(p_session text, p_slot integer) returns void
@@ -254,7 +276,9 @@ begin
     where (e->>'quantity')::double precision > 0
     order by p
   loop
-    exit when v_remaining <= 0;
+    -- Not "<= 0": a rounding leftover such as 3.6e-15 MW must not make the next
+    -- price level look bought (same tolerance as lib/game.ts).
+    exit when v_remaining <= 1e-9;
     select sum((e->>'quantity')::double precision) into v_total
     from jsonb_array_elements(p_offers) e
     where (e->>'quantity')::double precision > 0 and (e->>'price')::double precision = v_level;
@@ -349,7 +373,10 @@ begin
         select b, r.status, r.phase,
           -- Same letter for every viewer within a round, a new shuffle each round.
           row_number() over (partition by b.round_id order by md5(s.anon_salt || ':' || b.round_id || ':' || b.group_id)) as anon_rank,
-          case when p_admin or r.phase = 'collusion' then b.submitted_at::text
+          -- While a round is open others only see who has bid, in a neutral order (the
+          -- letter order would give the letters away; the time order, who just changed).
+          case when not p_admin and r.status <> 'closed' then lpad(b.group_id::text, 12, '0')
+               when p_admin or r.phase = 'collusion' then b.submitted_at::text
                else md5(s.anon_salt || ':' || b.round_id || ':' || b.group_id) end as sort_key
         from bids b join rounds r on r.id = b.round_id where r.session_id = s.id
       ) x), '[]'),
@@ -431,7 +458,8 @@ begin
   end if;
   delete from admin_tokens where expires_at < now();
   v_token := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
-  insert into admin_tokens (token, expires_at) values (v_token, now() + interval '7 days');
+  -- 30 days: a login made the week before must not expire in the middle of the game.
+  insert into admin_tokens (token, expires_at) values (v_token, now() + interval '30 days');
   return jsonb_build_object('token', v_token);
 end $$;
 
@@ -491,13 +519,14 @@ begin
 
   -- Default plan: one practice round, then the same seven hours of a day
   -- without and with agreements, so both parts can be compared hour by hour.
-  -- Demand moves up and down so some hours are tight and others are not.
-  insert into rounds (session_id, number, label, phase, demand_share) values (v_id, v_number, 'Practice', 'practice', 0.6);
+  -- Demand follows the day (low at night, peak at 20:00) inside the window
+  -- where 50-60% of the teams sell (see _demand_window).
+  insert into rounds (session_id, number, label, phase, demand_share) values (v_id, v_number, 'Practice', 'practice', 0.5);
   foreach v_phase in array array['competition', 'collusion'] loop
-    for h in select * from (values (1, '02:00 · Night', 0.45), (2, '07:00 · Early morning', 0.6),
-                                   (3, '09:00 · Morning', 0.7), (4, '12:00 · Midday', 0.55),
-                                   (5, '15:00 · Afternoon', 0.5), (6, '18:00 · Evening', 0.75),
-                                   (7, '20:00 · Evening peak', 0.85)) as t(o, label, share)
+    for h in select * from (values (1, '02:00 · Night', 0.43), (2, '07:00 · Early morning', 0.5),
+                                   (3, '09:00 · Morning', 0.55), (4, '12:00 · Midday', 0.48),
+                                   (5, '15:00 · Afternoon', 0.45), (6, '18:00 · Evening', 0.57),
+                                   (7, '20:00 · Evening peak', 0.6)) as t(o, label, share)
              order by o loop
       v_number := v_number + 1;
       insert into rounds (session_id, number, label, phase, demand_share) values (v_id, v_number, h.label, v_phase, h.share);
@@ -529,10 +558,12 @@ declare
   v_open integer;
   v_total double precision;
   v_seconds integer;
-  v_cap double precision;
+  w record;
 begin
   perform _check_admin(p_token);
-  select * into s from sessions where id = p_session;
+  -- One instructor action at a time per session (two quick clicks or two devices
+  -- could otherwise open two rounds). Joins and bids are not blocked by this lock.
+  select * into s from sessions where id = p_session for no key update;
   if not found then
     perform _fail('Session not found', 'not_found');
   end if;
@@ -559,10 +590,12 @@ begin
       if found then perform _fail(format('Round %s is still open. Close it first.', v_open)); end if;
       v_total := _playing_capacity(p_session);
       v_seconds := coalesce((p_action->>'seconds')::integer, s.round_seconds);
-      v_cap := _demand_cap(p_session);
+      -- The share sets the hour's demand; the window keeps 50-60% of the teams
+      -- selling, also at the top and bottom of an uncertain forecast.
+      select * into w from _demand_window(p_session);
       v_base := round((v_total * r.demand_share)::numeric);
-      v_high := least(round((v_base * (1 + r.demand_spread))::numeric), v_cap);
-      v_low := least(round((v_base * (1 - r.demand_spread))::numeric), v_high);
+      v_high := least(greatest(round((v_base * (1 + r.demand_spread))::numeric), w.lo), w.hi);
+      v_low := least(greatest(round((v_base * (1 - r.demand_spread))::numeric), w.lo), v_high);
       update rounds set status = 'open', opened_at = now(),
         demand_low = v_low,
         demand_high = v_high,
@@ -590,7 +623,7 @@ begin
       insert into rounds (session_id, number, label, phase, demand_share, demand_spread)
       values (p_session, (select coalesce(max(number), 0) + 1 from rounds where session_id = p_session),
               coalesce(nullif(trim(p_action->>'label'), ''), 'Extra round'), coalesce(v_phase, 'competition'),
-              coalesce(v_share, 0.7), coalesce(v_spread, 0));
+              coalesce(v_share, 0.55), coalesce(v_spread, 0));
 
     when 'updateRound' then
       if r.status <> 'pending' then perform _fail('Only pending rounds can be edited'); end if;
@@ -609,6 +642,7 @@ begin
       delete from rounds where id = r.id;
 
     when 'addGroup' then
+      perform pg_advisory_xact_lock(hashtext('join:' || p_session)); -- same slot counter as join_session
       perform _insert_group(p_session, (select coalesce(max(slot), 0) + 1 from groups where session_id = p_session));
 
     when 'removeGroup' then
@@ -626,6 +660,14 @@ begin
       where id = (p_action->>'groupId')::integer and session_id = p_session;
 
     when 'updateSession' then
+      if (p_action->>'priceCap') is not null
+         and not ((p_action->>'priceCap')::double precision > 0 and (p_action->>'priceCap')::double precision <= 100000) then
+        perform _fail('The price cap must be above 0');
+      end if;
+      if (p_action->>'roundSeconds') is not null
+         and not ((p_action->>'roundSeconds')::integer between 0 and 3600) then
+        perform _fail('Seconds per round must be between 0 and 3600');
+      end if;
       update sessions set name = coalesce(nullif(trim(p_action->>'name'), ''), name),
         price_cap = coalesce((p_action->>'priceCap')::double precision, price_cap),
         round_seconds = coalesce((p_action->>'roundSeconds')::integer, round_seconds)

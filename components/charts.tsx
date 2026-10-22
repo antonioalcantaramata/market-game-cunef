@@ -24,7 +24,9 @@ function niceStep(range: number, target: number) {
 }
 
 export function ticks(max: number, target: number) {
+  if (!(max > 0) || !Number.isFinite(max)) return [0]; // a 0 (or broken) maximum would loop forever
   const step = niceStep(max, target);
+  if (!(step > 0)) return [0];
   const out: number[] = [];
   for (let v = 0; v <= max + 1e-9; v += step) out.push(v);
   return out;
@@ -164,9 +166,11 @@ export function MeritOrderChart({
                 <g
                   key={bid.groupId}
                   opacity={dim ? 0.55 : 1}
-                  onMouseEnter={() => setHover(bid.groupId)}
-                  onMouseLeave={() => setHover(null)}
-                  onClick={() => setHover(hover === bid.groupId ? null : bid.groupId)}
+                  // Mouse: show on hover. Touch: a tap toggles (a tap also fakes a hover and
+                  // a click, which would open and close it at once).
+                  onPointerEnter={(e) => e.pointerType === "mouse" && setHover(bid.groupId)}
+                  onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+                  onPointerUp={(e) => e.pointerType !== "mouse" && setHover((h) => (h === bid.groupId ? null : bid.groupId))}
                 >
                   <clipPath id={`clip-${bid.groupId}`}>
                     <path d={topRounded(bx, top, bw, h, 4)} />

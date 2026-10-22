@@ -18,9 +18,15 @@ export class ApiError extends Error {
   }
 }
 
+// A request that never answers would hold up every later refresh of that screen
+// (and keep a button busy), so each one gives up after a few seconds.
+const TIMEOUT_MS = 8000;
+const NO_CONNECTION = "No connection. Check the Wi-Fi and try again.";
+
 async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
   if (!URL) throw new ApiError("The app is not connected to a database (NEXT_PUBLIC_SUPABASE_URL is missing).", 500);
   let res: Response;
+  let text: string;
   try {
     res = await fetch(`${URL}/rest/v1/rpc/${fn}`, {
       method: "POST",
@@ -32,11 +38,18 @@ async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
       },
       body: JSON.stringify(args),
       cache: "no-store",
+      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(TIMEOUT_MS) : undefined,
     });
+    text = await res.text();
   } catch {
-    throw new ApiError("No connection. Check the Wi-Fi and try again.", 0);
+    throw new ApiError(NO_CONNECTION, 0);
   }
-  const data = await res.json().catch(() => null);
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {}
+  // Gateway or server trouble (a 5xx page, not our JSON): treat it like a lost connection.
+  if (res.status >= 500 && data?.message == null) throw new ApiError(NO_CONNECTION, 0);
   if (!res.ok) {
     const status = data?.hint === "auth" ? 401 : data?.hint === "not_found" ? 404 : 400;
     if (status === 401) clearToken();

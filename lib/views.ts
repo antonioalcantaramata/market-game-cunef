@@ -65,16 +65,36 @@ function toBid(r: Row): BidView {
   };
 }
 
-function toRound(r: Row, totalCapacity: number, cap: number, bids: Row[], admin: boolean): RoundView {
+/**
+ * Range the demand is kept in so that 50-60% of the teams playing can sell.
+ * Mirrors _demand_window() in schema.sql.
+ */
+export function demandWindow(playing: { capacity: number }[]): { lo: number; hi: number } {
+  const n = playing.length;
+  const total = playing.reduce((sum, g) => sum + g.capacity, 0);
+  if (n < 2) return { lo: 0, hi: total };
+  const plant = total / n;
+  let kLo = Math.ceil(0.5 * n);
+  let kHi = Math.floor(0.6 * n);
+  if (kLo > kHi) kLo = kHi = Math.round(0.55 * n);
+  kHi = Math.min(kHi, n - 1);
+  kLo = Math.min(kLo, kHi);
+  return { lo: Math.ceil((kLo - 0.75) * plant), hi: Math.floor(kHi * plant) };
+}
+
+const clamp = (x: number, lo: number, hi: number) => Math.min(Math.max(x, lo), hi);
+
+function toRound(r: Row, totalCapacity: number, win: { lo: number; hi: number }, bids: Row[], admin: boolean): RoundView {
   const status = r.status as RoundView["status"];
   const mine = bids.filter((b) => Number(b.round_id) === Number(r.id));
   const spread = Number(r.demand_spread ?? 0);
   // Pending rounds preview the range with the teams playing now; opened rounds use the frozen draw.
-  // Same rule as the database (admin_action → openRound): the top of the range never exceeds the cap.
+  // Same rule as the database (admin_action → openRound): the range stays inside the 50-60% window.
   const base = Math.round(Number(r.demand_share) * totalCapacity);
-  const uncappedHigh = Math.round(base * (1 + spread));
-  const high = r.demand_high != null ? Number(r.demand_high) : Math.min(uncappedHigh, cap);
-  const low = r.demand_low != null ? Number(r.demand_low) : Math.min(Math.round(base * (1 - spread)), high);
+  const rawHigh = Math.round(base * (1 + spread));
+  const rawLow = Math.round(base * (1 - spread));
+  const high = r.demand_high != null ? Number(r.demand_high) : clamp(rawHigh, win.lo, win.hi);
+  const low = r.demand_low != null ? Number(r.demand_low) : Math.min(clamp(rawLow, win.lo, win.hi), high);
   const known = r.demand_mw != null;
   return {
     id: Number(r.id),
@@ -84,11 +104,11 @@ function toRound(r: Row, totalCapacity: number, cap: number, bids: Row[], admin:
     status,
     demandShare: Number(r.demand_share),
     demandSpread: spread,
-    demandMw: known ? Number(r.demand_mw) : status === "pending" ? Math.min(base, cap) : Math.round((low + high) / 2),
+    demandMw: known ? Number(r.demand_mw) : status === "pending" ? clamp(base, win.lo, win.hi) : Math.round((low + high) / 2),
     demandLow: low,
     demandHigh: high,
     demandKnown: known || (status === "pending" && spread === 0),
-    demandCapped: status === "pending" && uncappedHigh > cap,
+    demandAdjusted: status === "pending" && (rawHigh > win.hi || rawLow < win.lo),
     openedAt: iso(r.opened_at),
     deadline: iso(r.deadline),
     closedAt: iso(r.closed_at),
@@ -121,10 +141,9 @@ export function sessionView(b: Bundle, admin: boolean): SessionView {
   const groups = markPlaying(b.groups.map(toGroup));
   const playing = groups.filter((g) => g.playing);
   const playingCapacity = playing.reduce((sum, g) => sum + g.capacity, 0);
-  // Mirrors _demand_cap() in schema.sql: always leave the largest plant's worth unsold.
-  const cap = playing.length >= 2 ? playingCapacity - Math.max(...playing.map((g) => g.capacity)) : playingCapacity;
   // Pending rounds preview their demand with the teams playing right now.
-  const rounds = b.rounds.map((r) => toRound(r, playingCapacity, cap, b.bids, admin));
+  const win = demandWindow(playing);
+  const rounds = b.rounds.map((r) => toRound(r, playingCapacity, win, b.bids, admin));
   return {
     id: String(s.id),
     name: String(s.name),

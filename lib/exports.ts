@@ -20,5 +20,5 @@ export async function downloadCsv(sessionId: string, file: string) {
   a.href = URL.createObjectURL(blob);
   a.download = `market-${sessionId}-${file}.csv`;
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000); // Safari needs the link a moment after the click
 }

@@ -50,7 +50,7 @@ export function clearMarket(demand: number, offers: Offer[]): ClearingResult {
   let marginalPrice = 0;
 
   for (const price of levels) {
-    if (remaining <= 0) break;
+    if (remaining <= 1e-9) break; // a rounding leftover must not buy the next level (as in schema.sql)
     const atLevel = valid.filter((o) => o.price === price);
     const total = atLevel.reduce((s, o) => s + o.quantity, 0);
     const ratio = Math.min(1, remaining / total);

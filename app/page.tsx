@@ -35,6 +35,8 @@ export default function Home() {
           placeholder="ABC12"
           autoComplete="off"
           autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
           maxLength={8}
         />
         <button className="btn btn-accent py-3 text-lg" disabled={clean.length < 4}>
