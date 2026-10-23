@@ -23,7 +23,13 @@ export default function Page() {
 
 function GroupPage() {
   const code = (useSearchParams().get("code") ?? "").toUpperCase();
-  const { data, error, mutate } = useSWR<GroupState>(code ? ["group", code] : null, () => api.groupState(code), live(2000));
+  // Every 2 s while a round is open; every 5 s otherwise (lobby, results, talks), which
+  // is most of the workshop: phones are almost all the traffic to the database.
+  const { data, error, mutate } = useSWR<GroupState>(
+    code ? ["group", code] : null,
+    () => api.groupState(code),
+    live<GroupState>((d) => (d?.current?.status === "open" ? 2000 : 5000), 2000),
+  );
   // Remember this phone's team, so the projector QR brings it back here.
   const sessionId = data?.session.id;
   const online = useOnline();

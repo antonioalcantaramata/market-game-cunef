@@ -8,12 +8,16 @@ import { ApiError } from "./api";
  * out of date for most of a round. Retry at the same pace instead, and stop only
  * when retrying cannot help (not found, login needed).
  */
-export function live(intervalMs: number): SWRConfiguration {
+export function live<T>(
+  interval: number | ((data: T | undefined) => number),
+  retryMs = typeof interval === "number" ? interval : 2000,
+): SWRConfiguration {
   return {
-    refreshInterval: intervalMs,
+    // A function picks the pace from the latest data (e.g. faster while a round is open).
+    refreshInterval: interval as SWRConfiguration["refreshInterval"],
     onErrorRetry: (error, _key, _config, revalidate, { retryCount }) => {
       if (error instanceof ApiError && (error.status === 404 || error.status === 401)) return;
-      setTimeout(() => revalidate({ retryCount }), intervalMs);
+      setTimeout(() => revalidate({ retryCount }), retryMs);
     },
   };
 }
