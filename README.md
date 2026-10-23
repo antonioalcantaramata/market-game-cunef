@@ -77,8 +77,11 @@ Cada push a `main` vuelve a pasar los tests y publica la web.
   tu móvil, envía una oferta en la ronda de práctica y ciérrala. Después bórrala con *Delete*.
 - **Crea la sesión del día** (una nueva: las antiguas tienen otra demanda). El proyector solo lista las
   sesiones de los últimos 14 días.
-- En el ordenador del proyector, carga el PDF de las diapositivas (*Load PDF*): se queda guardado en ese
-  navegador. Comprueba que el mando de presentaciones pasa las diapositivas y que **B** cambia al juego.
+- En el ordenador del proyector, carga las diapositivas: en la vista *Slides* pulsa *Site slides* (o
+  *Load the workshop slides*) y se descarga el PDF publicado con la web; también puedes cargar un archivo
+  con *Load PDF*. Se queda guardado en ese navegador. Para publicar otra versión, copia el PDF de Overleaf
+  en `public/slides/open-day.pdf`, haz push (nunca durante el taller) y vuelve a pulsar *Site slides*.
+  Ojo: el repositorio es público, así que ese PDF también lo es. Comprueba que el mando de presentaciones pasa las diapositivas y que **B** cambia al juego.
   Usa la pantalla completa del navegador (**F11**) y no pulses el botón de «iniciar presentación» del
   mando: suele enviar F5, que recarga la página (vuelve a la misma vista, pero el análisis empieza de nuevo).
 - La vista, la diapositiva y la fuente del análisis (*This game* / *Example game*) se recuerdan por sesión:

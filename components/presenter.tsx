@@ -9,7 +9,12 @@
 // last slide); the decks themselves are kept for every session.
 
 import { createContext, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { BASE_PATH } from "@/lib/api";
 import { SlideCanvas, useDecks, usePdf } from "./slides";
+
+// The workshop deck, published with the site (public/slides/open-day.pdf), so the
+// projector can load it with one click instead of bringing the file on a USB stick.
+const SITE_DECK = { url: "/slides/open-day.pdf", name: "Open Day slides.pdf" };
 
 type View = "game" | "summary" | "analysis" | "slides";
 
@@ -90,6 +95,20 @@ export function Presenter({
     if (!file || !/\.pdf$/i.test(file.name)) return;
     chooseDeck(await add(file));
     switchTo("slides");
+  };
+  // Downloads the published deck (always the latest one) and keeps it like any other.
+  const [siteState, setSiteState] = useState<"idle" | "loading" | "error">("idle");
+  const loadSiteDeck = async () => {
+    setSiteState("loading");
+    try {
+      const res = await fetch(`${BASE_PATH}${SITE_DECK.url}?t=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      await loadFile(new File([blob], SITE_DECK.name, { type: "application/pdf" }));
+      setSiteState("idle");
+    } catch {
+      setSiteState("error");
+    }
   };
 
   // Keyboard and clicker.
@@ -199,7 +218,11 @@ export function Presenter({
             ) : ready ? (
               <>
                 <p className="text-3xl font-bold">No slides yet</p>
-                <p className="text-lg opacity-70">Drop a PDF here, or use “Load PDF” in the corner.</p>
+                <button className="rounded-lg bg-orange px-5 py-3 text-lg font-bold text-white" onClick={loadSiteDeck}>
+                  {siteState === "loading" ? "Loading…" : "Load the workshop slides"}
+                </button>
+                {siteState === "error" && <p className="text-orange">Could not download them. Check the connection, or load the file.</p>}
+                <p className="text-lg opacity-70">Or drop a PDF here, or use “Load PDF” in the corner.</p>
                 <p className="text-sm opacity-50">It stays on this computer: nothing is uploaded.</p>
               </>
             ) : null}
@@ -257,6 +280,13 @@ export function Presenter({
             ))}
           </select>
         )}
+        <button
+          className="rounded-md px-2.5 py-1.5 hover:bg-white/15"
+          onClick={loadSiteDeck}
+          title="Download the latest workshop slides published with the site"
+        >
+          {siteState === "loading" ? "Loading…" : siteState === "error" ? "Site slides ⚠" : "Site slides"}
+        </button>
         <button className="rounded-md px-2.5 py-1.5 hover:bg-white/15" onClick={() => fileInput.current?.click()}>
           Load PDF
         </button>
