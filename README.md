@@ -80,7 +80,7 @@ Cada push a `main` vuelve a pasar los tests y publica la web.
 - En el ordenador del proyector, carga las diapositivas: en la vista *Slides* pulsa *Site slides* (o
   *Load the workshop slides*) y se descarga el PDF publicado con la web; también puedes cargar un archivo
   con *Load PDF*. Se queda guardado en ese navegador. Para publicar otra versión, copia el PDF de Overleaf
-  en `public/slides/open-day.pdf`, haz push (nunca durante el taller) y vuelve a pulsar *Site slides*.
+  en `public/slides/open_day.pdf` (con este nombre exacto), haz push (nunca durante el taller) y vuelve a pulsar *Site slides*.
   Ojo: el repositorio es público, así que ese PDF también lo es. Comprueba que el mando de presentaciones pasa las diapositivas y que **B** cambia al juego.
   Usa la pantalla completa del navegador (**F11**) y no pulses el botón de «iniciar presentación» del
   mando: suele enviar F5, que recarga la página (vuelve a la misma vista, pero el análisis empieza de nuevo).

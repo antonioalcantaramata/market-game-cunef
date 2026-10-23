@@ -12,9 +12,9 @@ import { createContext, useContext, useEffect, useRef, useState, useSyncExternal
 import { BASE_PATH } from "@/lib/api";
 import { SlideCanvas, useDecks, usePdf } from "./slides";
 
-// The workshop deck, published with the site (public/slides/open-day.pdf), so the
+// The workshop deck, published with the site (public/slides/open_day.pdf), so the
 // projector can load it with one click instead of bringing the file on a USB stick.
-const SITE_DECK = { url: "/slides/open-day.pdf", name: "Open Day slides.pdf" };
+const SITE_DECK = { url: "/slides/open_day.pdf", name: "Open Day slides.pdf" };
 
 type View = "game" | "summary" | "analysis" | "slides";
 
